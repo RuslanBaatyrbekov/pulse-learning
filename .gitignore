@@ -1,0 +1,7 @@
+.DS_Store
+.idea/
+.vscode/
+*.log
+# real course content stays out of the repo
+content.sql
+private/

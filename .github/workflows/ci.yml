@@ -1,0 +1,44 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: JavaScript syntax
+        run: node --check app.js && node --check config.js
+
+      - name: Example course is valid JSON with the expected shape
+        run: |
+          node -e "
+          const c = require('./examples/course.example.json');
+          if (!Array.isArray(c.weeks) || !c.weeks.length) throw new Error('weeks missing');
+          for (const w of c.weeks) for (const d of w.days) {
+            if (!d.id || !d.title || !Array.isArray(d.cards)) throw new Error('bad lesson ' + d.id);
+            for (const t of d.tasks || []) if (!['mc','fill','order','match'].includes(t.t)) throw new Error('bad task in ' + d.id);
+          }
+          console.log('ok');"
+
+      - name: No secret keys in the repository
+        run: |
+          if grep -rIlE "service_role|sb_secret_" --exclude-dir=.git --exclude-dir=vendor --exclude=ci.yml --exclude=README.md --exclude=config.js .; then
+            echo "Possible secret key found" && exit 1
+          fi
+
+      - name: Every table has row level security
+        run: |
+          tables=$(grep -oE "create table if not exists public\.[a-z_]+" schema.sql | awk -F. '{print $2}' | sort -u)
+          for t in $tables; do
+            grep -q "alter table public.$t *enable row level security" schema.sql || { echo "RLS missing on $t"; exit 1; }
+          done
+          echo "RLS on: $tables"
