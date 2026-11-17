@@ -34,7 +34,8 @@ I built it to support a career change from medical technician to medical data sc
 | | |
 |---|---|
 | **Lesson flow** | Theory cards → tasks of four types: multiple choice, fill in the code, order the lines, match pairs. Wrong answers are re-queued until solved. Weekly checkpoint with 8 random tasks from the week plus a hands-on mission. |
-| **Habit mechanics** | Streak with freezes earned every 7 days, XP and 8 levels, badges, a 5-week activity heatmap, a glossary that unlocks term by term (DE / EN / RU). |
+| **Habit mechanics** | Streak with freezes earned every 7 days, XP and 14 levels, badges, a 5-week activity heatmap, a glossary that unlocks term by term (DE / EN / RU). |
+| **Learning tracks** | A course can fork: weeks marked with a `track` stay hidden until the learner picks a path after the shared part, and the track can be switched later in settings. Progress and the observer view follow the chosen path. |
 | **Python sandbox** | Code from lessons runs in the browser via Pyodide, no server needed. |
 | **Sync** | Progress lives in `localStorage` and in Postgres. Last write wins on a client timestamp; offline sessions sync on reconnect or when the tab regains focus. Switching accounts on one device never leaks progress between users. |
 | **Observer dashboard** | Read-only view for users in the `observers` table: today's status, last activity, streak, weekly and per-week progress, unresolved mistakes by topic. Updated through Supabase Realtime, with polling as a fallback. |

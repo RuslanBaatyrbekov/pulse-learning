@@ -1,11 +1,18 @@
 (function(){
 'use strict';
-var C={weeks:[],roadmap:[]}, ALL=[], LBY={}, KEY='puls-daten-v1', CKEY='puls-course-v1', courseErr='';
-function setCourse(c){if(!c||!c.weeks)return false;C=c;ALL=[];LBY={};
-  C.weeks.forEach(function(w,wi){w.days.forEach(function(d){d.week=wi;d.idx=ALL.length;ALL.push(d);LBY[d.id]=d;(d.tasks||[]).forEach(function(t,i){t._k=d.id+':'+i;});});});return true;}
+var C={weeks:[],roadmap:[]}, WK=[], ALL=[], LBY={}, TOTAL=0, KEY='puls-daten-v1', CKEY='puls-course-v1', courseErr='';
+/* Неделя с полем track входит в курс, только если ученица выбрала этот трек. До выбора курс заканчивается перед первой неделей трека. */
+function weeksFor(st){st=st||{};var out=[],stop=false;(C.weeks||[]).forEach(function(w){if(stop)return;if(w.track){if(st.track===w.track)out.push(w);else if(!st.track)stop=true;}else out.push(w);});return out;}
+function daysFor(st){var a=[];weeksFor(st).forEach(function(w){a=a.concat(w.days);});return a;}
+function rebuild(){WK=weeksFor(S);ALL=[];WK.forEach(function(w,wi){w.days.forEach(function(d){d.week=wi;d.idx=ALL.length;ALL.push(d);});});}
+function setCourse(c){if(!c||!c.weeks)return false;C=c;LBY={};TOTAL=0;var tr=null;
+  C.weeks.forEach(function(w){if(w.track&&!tr)tr=w.track;if(!w.track||w.track===tr)TOTAL+=w.days.length;w.days.forEach(function(d){LBY[d.id]=d;(d.tasks||[]).forEach(function(t,i){t._k=d.id+':'+i;});});});
+  rebuild();return true;}
+function hasTracks(){return (C.weeks||[]).some(function(w){return !!w.track;});}
+function trackName(t){var m=C.tracks||{};return (m[t]&&m[t].name)||({ds:'Medical Data Science',dh:'Digital Health'})[t]||t;}
 if(window.COURSE)setCourse(window.COURSE);
-var LEVELS=[[0,'Новичок в отделении'],[120,'Сборщик данных'],[300,'Младший аналитик'],[550,'Детектив данных'],[900,'Клинический аналитик'],[1400,'Data Scientist в ординатуре'],[2000,'Medical Data Scientist'],[3000,'Эксперт Digital Health']];
-var TAGS={py:'Python',dom:'Медицина и ИТ',stat:'Статистика',sql:'SQL',boss:'Контрольная'};
+var LEVELS=[[0,'Новичок в отделении'],[120,'Сборщик данных'],[300,'Младший аналитик'],[550,'Детектив данных'],[900,'Клинический аналитик'],[1400,'Знаток Python'],[2000,'Хранитель таблиц'],[3000,'Статистик у постели'],[4500,'Строитель моделей'],[6500,'Переводчик стандартов'],[9000,'Знаток регуляторики'],[12000,'Исследователь сигналов'],[15000,'Специалист своего трека'],[18000,'Готова к новой профессии']];
+var TAGS={py:'Python',dom:'Медицина и ИТ',stat:'Статистика',sql:'SQL',ml:'Машинное обучение',reg:'Регуляторика',sig:'Сигналы',car:'Карьера',boss:'Контрольная'};
 var $=function(s){return document.querySelector(s);};
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function ds(d){var m=d.getMonth()+1,x=d.getDate();return d.getFullYear()+'-'+(m<10?'0':'')+m+'-'+(x<10?'0':'')+x;}
@@ -80,9 +87,12 @@ function applyFreezes(){var keys=Object.keys(S.days).concat(Object.keys(S.frozen
   while(ds(d)>last&&gap.length<6){gap.push(ds(d));d=addDays(d,-1);}
   if(gap.length&&gap.length<=S.freezes){gap.forEach(function(k){S.frozen[k]=1;});S.freezes-=gap.length;save();}}
 function level(st){st=st||S;var i=0;for(var k=0;k<LEVELS.length;k++)if(st.xp>=LEVELS[k][0])i=k;var nx=LEVELS[i+1];return {i:i,name:LEVELS[i][1],from:LEVELS[i][0],to:nx?nx[0]:null};}
-function nextIdx(st){st=st||S;for(var i=0;i<ALL.length;i++)if(!st.done[ALL[i].id])return i;return -1;}
+function listFor(st){return (!st||st===S)?ALL:daysFor(st);}
+function nextIdx(st){var list=listFor(st);st=st||S;for(var i=0;i<list.length;i++)if(!st.done[list[i].id])return i;return -1;}
+function nextLesson(st){var i=nextIdx(st);return i<0?null:listFor(st)[i];}
+function needTrack(st){st=st||S;return hasTracks()&&!st.track&&listFor(st).length>0&&nextIdx(st)<0;}
 function newToday(){return S.newDay===today()?S.newN:0;}
-function doneCount(st){st=st||S;return ALL.filter(function(l){return st.done[l.id];}).length;}
+function doneCount(st){st=st||S;var n=0;Object.keys(st.done||{}).forEach(function(id){if(LBY[id])n++;});return n;}
 
 /* ---------- маршрут ---------- */
 var VIEWS=['path','glossary','sandbox','progress','watch'], view='path', R=null, T=null, RES=null, toastT=null;
@@ -106,14 +116,15 @@ function dayRow(L){var done=!!S.done[L.id],nx=nextIdx()===L.idx,cls=done?'done':
   return '<button class="day '+cls+'" data-a="open" data-i="'+L.idx+'"'+(cls==='lock'?' aria-disabled="true"':'')+'><span class="n">'+(done?'✓':L.idx+1)+'</span><span class="grow"><span class="tt">'+esc(L.title)+'</span><br><span class="st">'+st+'</span></span><span class="tag">'+TAGS[L.tag]+'</span></button>';}
 function vPath(){var s=streak(),lv=level(),ni=nextIdx(),did=S.days[today()]!==undefined,cap=newToday()>=2,h=header();
   var pct=lv.to?Math.round((S.xp-lv.from)/(lv.to-lv.from)*100):100,cta,sub;
-  if(ni<0){cta='<button class="btn" data-a="review">Повторение</button>';sub='Первый месяц пройден. Попроси продолжение курса: следующие темы уже в плане ниже.';}
+  if(needTrack()){cta='<button class="btn" data-a="track" data-v="ds">'+esc(trackName('ds'))+'</button><button class="btn ghost" data-a="track" data-v="dh">'+esc(trackName('dh'))+'</button>';sub='Общая часть пройдена. Выбери трек на следующие пять недель: Medical Data Science — модели и исследования, Digital Health — продукт, стандарты и качество. Сменить можно в настройках.';}
+  else if(ni<0){cta='<button class="btn" data-a="review">Повторение</button>';sub='Весь курс пройден. Повторение держит знания свежими, а вкладка «Прогресс» хранит твой путь.';}
   else if(cap){cta='<button class="btn" data-a="review">Повторение</button>';sub='Два новых урока сегодня уже пройдены. День '+(ni+1)+' откроется завтра.';}
   else{cta='<button class="btn" data-a="open" data-i="'+ni+'">'+(did?'Ещё один урок: день ':'Начать день ')+(ni+1)+'</button>'+(doneCount()?'<button class="btn ghost" data-a="review">Повторение</button>':'');sub=did?'Сегодняшний пульс есть. Можно остановиться или пройти ещё один урок.':s>0?'Пульс ровный. Не пропусти сегодняшний день.':'Один урок в день, 15 минут. Сегодня: '+esc(ALL[ni].title)+'.';}
   h+='<section class="card hero"><div class="row" style="justify-content:space-between;align-items:flex-end"><div><div class="eyebrow">'+esc(S.name||'Привет')+', твой пульс</div><div class="row" style="align-items:baseline;gap:8px"><span class="big num">'+s+'</span><span class="muted">'+plural(s,'день подряд','дня подряд','дней подряд')+'</span></div></div><div class="small muted" style="text-align:right">Заморозки: <b class="num">'+S.freezes+'</b><br>Рекорд: <b class="num">'+Math.max(S.best,s)+'</b></div></div>'+stripSvg()+
     '<div><div class="row small" style="justify-content:space-between"><span><b>Уровень '+(lv.i+1)+'.</b> '+lv.name+'</span><span class="muted num">'+S.xp+(lv.to?' / '+lv.to:'')+' XP</span></div><div class="bar" style="margin-top:6px"><i style="width:'+pct+'%"></i></div></div><p class="small" style="margin:0">'+sub+'</p><div class="foot">'+cta+'</div></section>';
-  C.weeks.forEach(function(w,wi){var d=w.days.filter(function(l){return S.done[l.id];}).length;
-    h+='<section class="week"><div><div class="eyebrow">Неделя '+(wi+1)+' · <span class="num">'+d+' из '+w.days.length+'</span></div><h2>'+esc(w.title)+'</h2><p class="small muted" style="margin:4px 0 0">'+esc(w.sub)+'</p></div><div class="days">'+w.days.map(dayRow).join('')+'</div></section>';});
-  h+='<section class="card"><div class="eyebrow">Дальше по плану · 9 месяцев всего</div><h2 style="margin:4px 0 12px">Маршрут до смены профессии</h2><div class="road">'+C.roadmap.map(function(r){return '<div><span class="small muted">'+r.w+'</span><br><b>'+r.t+'</b><br><span class="small">'+r.d+'</span></div>';}).join('')+'</div></section>';
+  WK.forEach(function(w,wi){var d=w.days.filter(function(l){return S.done[l.id];}).length;
+    h+='<section class="week"><div><div class="eyebrow">Неделя '+(wi+1)+(w.track?' · трек '+esc(trackName(w.track)):'')+' · <span class="num">'+d+' из '+w.days.length+'</span></div><h2>'+esc(w.title)+'</h2><p class="small muted" style="margin:4px 0 0">'+esc(w.sub)+'</p></div><div class="days">'+w.days.map(dayRow).join('')+'</div></section>';});
+  if(C.roadmap&&C.roadmap.length)h+='<section class="card"><div class="eyebrow">Дальше по плану · 9 месяцев всего</div><h2 style="margin:4px 0 12px">Маршрут до смены профессии</h2><div class="road">'+C.roadmap.map(function(r){return '<div><span class="small muted">'+r.w+'</span><br><b>'+r.t+'</b><br><span class="small">'+r.d+'</span></div>';}).join('')+'</div></section>';
   return h;}
 function plural(n,a,b,c){var m=n%10,h=n%100;return m===1&&h!==11?a:m>=2&&m<=4&&(h<12||h>14)?b:c;}
 
@@ -139,16 +150,16 @@ function runHere(){var run=R,pos=R.pos,c=R.q[pos].c;execPy(c.code,function(o){if
 function badges(){var s=Math.max(S.best,streak()),dn=doneCount();return [
   ['Первый шаг','Пройден первый урок',dn>=1],['Три дня подряд','Пульс держится 3 дня',s>=3],['Неделя без пропусков','7 дней подряд',s>=7],['Две недели','14 дней подряд',s>=14],['Месяц','30 дней подряд',s>=30],
   ['Чистая работа','Урок без единой ошибки',S.perfect>=1],['Пять чистых','5 уроков без ошибок',S.perfect>=5],['Первая смена','Контрольная недели 1',!!S.done.b1],['Практик','Сделана практика в Colab',Object.keys(S.missions).length>=1],
-  ['Табличный ум','Пройдена неделя 3',!!S.done.b3],['Первый месяц','Все 28 дней',dn>=ALL.length],['Повторение — мать учения','10 повторений',S.reviews>=10]];}
+  ['Табличный ум','Пройдена неделя 3',!!S.done.b3],['Первый месяц','Все 28 дней',!!S.done.b4],['Проект 1','Разведочный анализ',!!S.done.b9],['Проект 2','Модель прогноза',!!S.done.b15],['Свой путь','Выбран трек',!!S.track],['Финал','Курс пройден целиком',!!S.done.w36_b],['Повторение — мать учения','10 повторений',S.reviews>=10]];}
 function vProg(){var lv=level(),dn=doneCount(),h=header()+'<section><div class="eyebrow">Прогресс</div><h1>'+esc(S.name||'Твой прогресс')+': уровень '+(lv.i+1)+'</h1><p class="small muted" style="margin:6px 0 0">'+lv.name+'</p></section>';
-  h+='<div class="stats"><div class="stat"><b class="num">'+dn+' / '+ALL.length+'</b><span class="small muted">дней курса</span></div><div class="stat"><b class="num">'+S.xp+'</b><span class="small muted">XP</span></div><div class="stat"><b class="num">'+Math.max(S.best,streak())+'</b><span class="small muted">рекорд дней подряд</span></div></div>';
-  h+='<div class="bar acc"><i style="width:'+Math.round(dn/ALL.length*100)+'%"></i></div>';
+  h+='<div class="stats"><div class="stat"><b class="num">'+dn+' / '+TOTAL+'</b><span class="small muted">дней курса</span></div><div class="stat"><b class="num">'+S.xp+'</b><span class="small muted">XP</span></div><div class="stat"><b class="num">'+Math.max(S.best,streak())+'</b><span class="small muted">рекорд дней подряд</span></div></div>';
+  h+='<div class="bar acc"><i style="width:'+Math.round(dn/Math.max(TOTAL,1)*100)+'%"></i></div>';
   var cells='',t=new Date(),start=addDays(t,-(((t.getDay()+6)%7)+28));
   for(var i=0;i<35;i++){var d=addDays(start,i),k=ds(d);cells+='<i class="'+(S.days[k]!==undefined?'a':S.frozen[k]?'f':'')+(k===today()?' t':'')+'" title="'+k+'"></i>';}
   h+='<section class="card"><h3>Последние 5 недель</h3><p class="small muted" style="margin:4px 0 10px">Пн–Вс. Зелёный: занималась. Жёлтый: сработала заморозка.</p><div class="heat">'+cells+'</div></section>';
   h+='<section><h3 style="margin-bottom:8px">Награды</h3><div class="badges">'+badges().map(function(b){return '<div class="badge'+(b[2]?'':' off')+'"><b>'+(b[2]?'✓ ':'')+b[0]+'</b><span class="small muted">'+b[1]+'</span></div>';}).join('')+'</div></section>';
   h+='<section class="card"><h3>Как это работает</h3><p class="small" style="margin:6px 0 0;max-width:62ch">Один урок в день держит пульс. В день можно пройти не больше двух новых уроков, повторять можно сколько угодно. За каждые 7 дней подряд ты получаешь заморозку: она спасает серию, если один день пропущен. Ошибки в заданиях не страшны: задание вернётся в конце урока.</p></section>';
-  h+='<section class="card"><h3>Настройки</h3><div class="row" style="margin-top:10px"><label for="nm" class="small">Имя</label><input class="txt" id="nm" value="'+esc(S.name)+'" maxlength="30"><button class="btn small" data-a="name">Сохранить</button></div><p class="small muted" style="margin:10px 0 0">'+({cloud:'Синхронизация включена: прогресс хранится на защищённом сервере и виден на всех твоих устройствах.',connecting:'Подключаю синхронизацию…',owner:'Ты наблюдатель: твой прогресс хранится только в этом браузере, прогресс учеников — во вкладке «Наблюдение».',error:'Нет связи с сервером. Прогресс сохраняется в этом браузере и отправится, когда связь появится.'}[syncState]||'Прогресс сохраняется автоматически в этом браузере на этом устройстве.')+'</p><h3 style="margin-top:18px">Резервная копия</h3><p class="small" style="margin:6px 0 10px;max-width:62ch">Код прогресса хранит всё: пройденные дни, XP и серию. Скопируй его и сохрани, например отправь себе в мессенджер. Чтобы продолжить на другом устройстве или после очистки браузера, вставь код ниже и нажми «Восстановить».</p><div class="row"><button class="btn small" data-a="exp">Скопировать код прогресса</button></div><label class="eyebrow" for="code" style="display:block;margin-top:12px">Код</label><textarea id="code" class="txt" style="max-width:100%;min-height:70px;font-family:var(--f-mono);font-size:12px" spellcheck="false" autocomplete="off" placeholder="Вставь сюда сохранённый код"></textarea><div class="row" style="margin-top:8px"><button class="btn small ghost" data-a="imp">Восстановить из кода</button></div>'+(ME?'<p class="small muted" style="margin:6px 0 0">Вход: '+esc(EMAIL)+'</p><div style="margin-top:10px"><button class="btn small ghost" data-a="logout">Выйти из аккаунта</button></div>':'')+'<div style="margin-top:10px"><button class="btn small ghost" data-a="reset" id="rst">Сбросить весь прогресс</button></div></section>';
+  h+='<section class="card"><h3>Настройки</h3><div class="row" style="margin-top:10px"><label for="nm" class="small">Имя</label><input class="txt" id="nm" value="'+esc(S.name)+'" maxlength="30"><button class="btn small" data-a="name">Сохранить</button></div><p class="small muted" style="margin:10px 0 0">'+({cloud:'Синхронизация включена: прогресс хранится на защищённом сервере и виден на всех твоих устройствах.',connecting:'Подключаю синхронизацию…',owner:'Ты наблюдатель: твой прогресс хранится только в этом браузере, прогресс учеников — во вкладке «Наблюдение».',error:'Нет связи с сервером. Прогресс сохраняется в этом браузере и отправится, когда связь появится.'}[syncState]||'Прогресс сохраняется автоматически в этом браузере на этом устройстве.')+'</p>'+(hasTracks()&&S.track?'<h3 style="margin-top:18px">Трек</h3><p class="small" style="margin:6px 0 10px">Сейчас: <b>'+esc(trackName(S.track))+'</b>. Пройденные уроки обоих треков сохраняются.</p><div class="row"><button class="btn small ghost" data-a="track" data-v="'+(S.track==='ds'?'dh':'ds')+'">Перейти на '+esc(trackName(S.track==='ds'?'dh':'ds'))+'</button></div>':'')+'<h3 style="margin-top:18px">Резервная копия</h3><p class="small" style="margin:6px 0 10px;max-width:62ch">Код прогресса хранит всё: пройденные дни, XP и серию. Скопируй его и сохрани, например отправь себе в мессенджер. Чтобы продолжить на другом устройстве или после очистки браузера, вставь код ниже и нажми «Восстановить».</p><div class="row"><button class="btn small" data-a="exp">Скопировать код прогресса</button></div><label class="eyebrow" for="code" style="display:block;margin-top:12px">Код</label><textarea id="code" class="txt" style="max-width:100%;min-height:70px;font-family:var(--f-mono);font-size:12px" spellcheck="false" autocomplete="off" placeholder="Вставь сюда сохранённый код"></textarea><div class="row" style="margin-top:8px"><button class="btn small ghost" data-a="imp">Восстановить из кода</button></div>'+(ME?'<p class="small muted" style="margin:6px 0 0">Вход: '+esc(EMAIL)+'</p><div style="margin-top:10px"><button class="btn small ghost" data-a="logout">Выйти из аккаунта</button></div>':'')+'<div style="margin-top:10px"><button class="btn small ghost" data-a="reset" id="rst">Сбросить весь прогресс</button></div></section>';
   return h;}
 
 
@@ -163,17 +174,17 @@ function loadWatch(){if(!SB||!OWNER||W.busy)return;W.busy=true;
 function startWatch(){if(!SB||!OWNER)return;if(!W.docs&&!W.busy)loadWatch();
   if(!W.ch&&SB.channel){try{W.ch=SB.channel('progress-watch').on('postgres_changes',{event:'*',schema:'public',table:'progress'},function(){loadWatch();}).subscribe();}catch(e){W.ch=null;}}
   if(!W.poll)W.poll=setInterval(function(){if(view==='watch'&&!document.hidden)loadWatch();},60000);}
-function learnerCard(st){var name=st.name||st.email||'Ученица',s=streak(st),lv=level(st),dn=doneCount(st),ni=nextIdx(st),td=st.days[today()]!==undefined;
+function learnerCard(st){var name=st.name||st.email||'Ученица',s=streak(st),lv=level(st),dn=doneCount(st),nl=nextLesson(st),ni=nextIdx(st),td=st.days[today()]!==undefined;
   var wk=0,t=new Date();for(var i=0;i<7;i++)if(st.days[ds(addDays(t,-i))]!==undefined)wk++;
   var weak={},bylesson={};Object.keys(st.missed||{}).forEach(function(k){var L=LBY[k.split(':')[0]];if(!L)return;weak[L.tag]=(weak[L.tag]||0)+st.missed[k];bylesson[L.id]=(bylesson[L.id]||0)+st.missed[k];});
   var topL=Object.keys(bylesson).sort(function(a,b){return bylesson[b]-bylesson[a];}).slice(0,3);
   var cells='',start=addDays(t,-(((t.getDay()+6)%7)+28));for(var j=0;j<35;j++){var d=addDays(start,j),k=ds(d);cells+='<i class="'+(st.days[k]!==undefined?'a':st.frozen&&st.frozen[k]?'f':'')+(k===today()?' t':'')+'" title="'+k+'"></i>';}
   var h='<section class="card hero"><div class="row" style="justify-content:space-between"><div><div class="eyebrow">Ученица</div><h1>'+esc(name)+'</h1></div><span class="chip" style="'+(td?'border-color:var(--ok);color:var(--ok)':'border-color:var(--pulse);color:var(--pulse)')+'">'+(td?'Сегодня занималась':'Сегодня ещё нет')+'</span></div>'+
     '<p class="small muted" style="margin:0">Последняя активность: '+ago(st.t)+'</p>'+stripSvg(st)+
-    '<div class="stats"><div class="stat"><b class="num" style="color:var(--pulse)">'+s+'</b><span class="small muted">'+plural(s,'день подряд','дня подряд','дней подряд')+'</span></div><div class="stat"><b class="num">'+dn+' / '+ALL.length+'</b><span class="small muted">дней курса</span></div><div class="stat"><b class="num">'+wk+' / 7</b><span class="small muted">за неделю</span></div></div>'+
+    '<div class="stats"><div class="stat"><b class="num" style="color:var(--pulse)">'+s+'</b><span class="small muted">'+plural(s,'день подряд','дня подряд','дней подряд')+'</span></div><div class="stat"><b class="num">'+dn+' / '+TOTAL+'</b><span class="small muted">дней курса</span></div><div class="stat"><b class="num">'+wk+' / 7</b><span class="small muted">за неделю</span></div></div>'+
     '<div><div class="row small" style="justify-content:space-between"><span><b>Уровень '+(lv.i+1)+'.</b> '+lv.name+'</span><span class="muted num">'+st.xp+' XP</span></div><div class="bar" style="margin-top:6px"><i style="width:'+(lv.to?Math.round((st.xp-lv.from)/(lv.to-lv.from)*100):100)+'%"></i></div></div>'+
-    '<p class="small" style="margin:0">'+(ni>=0?'Сейчас на дне '+(ni+1)+': '+esc(ALL[ni].title)+'.':'Первый месяц пройден полностью.')+' Рекорд серии: '+Math.max(st.best||0,s)+'. Заморозок: '+(st.freezes||0)+'. Уроков без ошибок: '+(st.perfect||0)+'.</p></section>';
-  h+='<section class="card"><h3>Недели</h3><div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">'+C.weeks.map(function(w,wi){var d=w.days.filter(function(l){return st.done[l.id];}).length;return '<div><div class="row small" style="justify-content:space-between"><span>'+(wi+1)+'. '+esc(w.title)+'</span><span class="muted num">'+d+' / '+w.days.length+'</span></div><div class="bar acc" style="margin-top:4px"><i style="width:'+Math.round(d/w.days.length*100)+'%"></i></div></div>';}).join('')+'</div></section>';
+    '<p class="small" style="margin:0">'+(nl?'Сейчас на дне '+(ni+1)+': '+esc(nl.title)+'.':needTrack(st)?'Общая часть пройдена, ждёт выбора трека.':'Курс пройден полностью.')+(st.track?' Трек: '+esc(trackName(st.track))+'.':'')+' Рекорд серии: '+Math.max(st.best||0,s)+'. Заморозок: '+(st.freezes||0)+'. Уроков без ошибок: '+(st.perfect||0)+'.</p></section>';
+  h+='<section class="card"><h3>Недели</h3><div style="display:flex;flex-direction:column;gap:10px;margin-top:10px">'+weeksFor(st).map(function(w,wi){var d=w.days.filter(function(l){return st.done[l.id];}).length;return '<div><div class="row small" style="justify-content:space-between"><span>'+(wi+1)+'. '+esc(w.title)+'</span><span class="muted num">'+d+' / '+w.days.length+'</span></div><div class="bar acc" style="margin-top:4px"><i style="width:'+Math.round(d/w.days.length*100)+'%"></i></div></div>';}).join('')+'</div></section>';
   h+='<section class="card"><h3>Где были ошибки</h3>'+(topL.length?'<p class="small muted" style="margin:4px 0 8px">Задания, которые ещё не исправлены в повторении.</p><div class="row">'+Object.keys(weak).map(function(g){return '<span class="tag">'+TAGS[g]+': '+weak[g]+'</span>';}).join('')+'</div><ul class="small" style="margin:10px 0 0;padding-left:18px">'+topL.map(function(id){return '<li>'+esc(LBY[id].title)+' — '+bylesson[id]+'</li>';}).join('')+'</ul>':'<p class="small muted" style="margin:4px 0 0">Неисправленных ошибок нет.</p>')+'</section>';
   h+='<section class="card"><h3>Последние 5 недель</h3><div class="heat" style="margin-top:10px">'+cells+'</div></section>';
   return h;}
@@ -185,7 +196,7 @@ function vWatch(){if(!OWNER)return header()+'<div class="card">Эта вклад
   return h+W.docs.sort(function(a,b){return (b.t||0)-(a.t||0);}).map(learnerCard).join('');}
 
 /* ---------- урок ---------- */
-function weekTasks(wi){var a=[];C.weeks[wi].days.forEach(function(l){(l.tasks||[]).forEach(function(t){a.push(t);});});return a;}
+function weekTasks(wi){var a=[];WK[wi].days.forEach(function(l){(l.tasks||[]).forEach(function(t){a.push(t);});});return a;}
 function openLesson(i){var L=ALL[i],isNew=!S.done[L.id];
   if(isNew&&i!==nextIdx())return toast('Сначала пройди предыдущий день.');
   if(isNew&&newToday()>=2)return toast('Два новых урока в день — максимум. Этот откроется завтра.');
@@ -247,7 +258,7 @@ function vResult(){var r=RES,lv=level(),ni=nextIdx(),more=ni>=0&&newToday()<2;
   return '<section class="result"><svg class="ecg" viewBox="0 0 400 90" preserveAspectRatio="none" aria-hidden="true"><path d="M0 55 H90 Q100 42 110 55 H128 L138 64 L152 8 L166 78 L176 55 H196 Q214 34 232 55 H400"/></svg><div><div class="eyebrow">'+esc(r.title)+'</div><h1>'+head+'</h1><p style="margin:8px 0 0">'+line+(r.fz?' За 7 дней подряд ты получила заморозку.':'')+'</p></div>'+
   '<div class="stats"><div class="stat"><b class="num">+'+r.gain+'</b><span class="small muted">XP</span></div><div class="stat"><b class="num">'+r.ok+' / '+r.tasks+'</b><span class="small muted">с первой попытки</span></div><div class="stat"><b class="num">'+r.streak+'</b><span class="small muted">'+plural(r.streak,'день подряд','дня подряд','дней подряд')+'</span></div></div>'+
   '<div class="card"><div class="row small" style="justify-content:space-between"><span><b>Уровень '+(lv.i+1)+'.</b> '+lv.name+'</span><span class="muted num">'+S.xp+(lv.to?' / '+lv.to:'')+' XP</span></div><div class="bar" style="margin-top:6px"><i style="width:'+(lv.to?Math.round((S.xp-lv.from)/(lv.to-lv.from)*100):100)+'%"></i></div>'+(r.terms?'<p class="small" style="margin:10px 0 0">В словаре открыто новых терминов: '+r.terms+'.</p>':'')+(r.perfect&&!r.review?'<p class="small" style="margin:6px 0 0">Ни одной ошибки.</p>':'')+'</div>'+
-  '<div class="foot"><button class="btn" data-a="home">На главную</button>'+(more&&!r.review?'<button class="btn ghost" data-a="open" data-i="'+ni+'">Ещё один урок</button>':'')+'</div><p class="small muted" style="margin:0">Завтра ждёт '+(ni>=0?'день '+(ni+1)+': '+esc(ALL[ni].title):'повторение')+'.</p></section>';}
+  '<div class="foot"><button class="btn" data-a="home">На главную</button>'+(more&&!r.review?'<button class="btn ghost" data-a="open" data-i="'+ni+'">Ещё один урок</button>':'')+'</div><p class="small muted" style="margin:0">Завтра ждёт '+(ni>=0?'день '+(ni+1)+': '+esc(ALL[ni].title):needTrack()?'выбор трека на главной':'повторение')+'.</p></section>';}
 
 /* ---------- наставник ---------- */
 var tutorOn=false, sampleFn=null;
@@ -258,7 +269,7 @@ function askTutor(){var st=R&&R.q[R.pos];if(!st||!sampleFn||!T)return;var t=st.t
   .then(function(r){if(T===mine){mine.tutor=r.text||mine.tutor;render();}},function(e){if(e&&e.code==='not_granted')tutorOn=false;if(T===mine){mine.tutor='Наставник сейчас недоступен. Попробуй позже.';render();}});}
 
 /* ---------- отрисовка и события ---------- */
-function render(){var a=$('#app'),tabs=$('#tabs'),inRun=view==='run'||view==='result'||view==='login'||view==='boot'||view==='nocourse';tabs.hidden=inRun;tabs.style.display=inRun?'none':'';
+function render(){rebuild();var a=$('#app'),tabs=$('#tabs'),inRun=view==='run'||view==='result'||view==='login'||view==='boot'||view==='nocourse';tabs.hidden=inRun;tabs.style.display=inRun?'none':'';
   a.innerHTML=view==='nocourse'?vNoCourse():view==='login'?vLogin():view==='boot'?vBoot():view==='run'?vRun():view==='result'?vResult():view==='glossary'?vGloss():view==='sandbox'?vSand():view==='progress'?vProg():view==='watch'?vWatch():vPath();
   var wt=$('#watchtab');if(wt)wt.hidden=!OWNER;
   if(!inRun)tabs.querySelectorAll('button').forEach(function(b){if(b.dataset.v===view)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
@@ -280,6 +291,7 @@ var A={
   mission:function(el){R.mission=el.dataset.v==='1';next();},
   logout:function(){if(!SB)return;try{localStorage.removeItem(CKEY);}catch(e){}setCourse({weeks:[],roadmap:[]});SB.auth.signOut().then(function(){},function(){});onSession(null);},
   retry:function(){view='boot';render();SB.auth.getSession().then(function(r){ME=null;onSession(r&&r.data&&r.data.session);});},
+  track:function(el){var v=el.dataset.v;if(v!=='ds'&&v!=='dh')return;S.track=v;save();rebuild();view='path';render();window.scrollTo(0,0);toast('Трек: '+trackName(v)+'. Следующий урок уже ждёт.');},
   runhere:runHere, run:runPy, tutor:askTutor,
   exp:function(){var code=btoa(unescape(encodeURIComponent(JSON.stringify(S)))),ta=$('#code');ta.value=code;ta.select();
     try{navigator.clipboard.writeText(code).then(function(){toast('Код скопирован. Сохрани его в надёжном месте.');},function(){toast('Код в поле ниже. Выдели его и скопируй вручную.');});}catch(e){toast('Код в поле ниже. Выдели его и скопируй вручную.');}},
