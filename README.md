@@ -50,7 +50,7 @@ flowchart LR
         PY[Pyodide<br/>Python sandbox]
     end
 
-    subgraph Supabase["Supabase · eu-central-1"]
+    subgraph Supabase["Supabase · EU region"]
         AUTH[Auth<br/>email + password, sign-ups off]
         PG[(Postgres<br/>progress · observers · course_content)]
         RT[Realtime]
