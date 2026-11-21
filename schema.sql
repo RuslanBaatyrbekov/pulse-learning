@@ -54,7 +54,7 @@ revoke all on public.course_content from anon;
 grant select on public.course_content to authenticated;
 create policy "course: signed-in users read" on public.course_content
   for select to authenticated using (true);
--- Записывать уроки приложение не может: их загружает content.sql через SQL Editor.
+-- Записывать уроки может только наблюдатель: вкладка «Наблюдение» → «Загрузить курс» (см. раздел 7).
 
 -- 4. Живое обновление вкладки «Наблюдение».
 alter publication supabase_realtime add table public.progress;
@@ -63,3 +63,15 @@ alter publication supabase_realtime add table public.progress;
 --    подставив свой email:
 -- insert into public.observers (user_id)
 --   select id from auth.users where email = 'твой@email.de';
+
+-- 7. Наблюдатель загружает новую версию курса прямо из приложения.
+grant insert, update on public.course_content to authenticated;
+drop policy if exists "course: observers insert" on public.course_content;
+drop policy if exists "course: observers update" on public.course_content;
+create policy "course: observers insert" on public.course_content for insert to authenticated
+  with check (exists (select 1 from public.observers o where o.user_id = (select auth.uid())));
+create policy "course: observers update" on public.course_content for update to authenticated
+  using (exists (select 1 from public.observers o where o.user_id = (select auth.uid())))
+  with check (exists (select 1 from public.observers o where o.user_id = (select auth.uid())));
+
+-- 8. Напоминания (Web Push) — отдельный файл push.sql.
