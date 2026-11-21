@@ -16,7 +16,7 @@ jobs:
           node-version: 20
 
       - name: JavaScript syntax
-        run: node --check app.js && node --check config.js
+        run: node --check app.js && node --check config.js && node --check sw.js
 
       - name: Example course is valid JSON with the expected shape
         run: |
@@ -29,6 +29,9 @@ jobs:
           }
           console.log('ok');"
 
+      - name: Manifest is valid JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('manifest.webmanifest','utf8')); console.log('ok')"
+
       - name: No secret keys in the repository
         run: |
           if grep -rIlE "service_role|sb_secret_" --exclude-dir=.git --exclude-dir=vendor --exclude=ci.yml --exclude=README.md --exclude=config.js .; then
@@ -37,8 +40,10 @@ jobs:
 
       - name: Every table has row level security
         run: |
-          tables=$(grep -oE "create table if not exists public\.[a-z_]+" schema.sql | awk -F. '{print $2}' | sort -u)
-          for t in $tables; do
-            grep -q "alter table public.$t *enable row level security" schema.sql || { echo "RLS missing on $t"; exit 1; }
+          for f in schema.sql push.sql; do
+            tables=$(grep -oE "create table if not exists public\.[a-z_]+" $f | awk -F. '{print $2}' | sort -u)
+            for t in $tables; do
+              grep -q "alter table public.$t *enable row level security" $f || { echo "RLS missing on $t in $f"; exit 1; }
+            done
           done
-          echo "RLS on: $tables"
+          echo "RLS ok"
