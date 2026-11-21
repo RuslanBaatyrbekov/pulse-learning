@@ -5,5 +5,7 @@
    Never put the service_role / secret key here. */
 window.PULS_CONFIG = {
   url: 'https://tiduoqdlhsjdevkubdrz.supabase.co',
-  anonKey: 'sb_publishable_1ogy3oBDAhoYlQxznw4eCg_3zO7yG-F'
+  anonKey: 'sb_publishable_1ogy3oBDAhoYlQxznw4eCg_3zO7yG-F',
+  // Web Push public key (VAPID). Public by design; the private key lives only in Supabase secrets.
+  vapidPublic: 'BC_VWRViiWp-ts1AtCf1el7FGFU3li7D04KIf4vGI7LBvuJt1OyoLFFoqd7gEBSoyh6WTHfvyyJeZ0wsBfIMojY'
 };
