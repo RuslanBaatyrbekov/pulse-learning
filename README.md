@@ -27,7 +27,7 @@ Pulse is built around the habit, not the syllabus:
 - Mistakes come back: a wrong task returns at the end of the lesson, and unresolved ones lead the review queue.
 - A mentor (or a supportive partner) sees progress live without asking "did you study today?".
 
-I built it to support a career change from medical technician to medical data science / digital health. The engine is content-agnostic: the course is a JSON document in the database.
+I built it to support a career change from medical technician to medical data science / digital health. The engine is content-agnostic: a course is a JSON document in the database, and one project can host several courses side by side.
 
 ## Features
 
@@ -42,6 +42,7 @@ I built it to support a career change from medical technician to medical data sc
 | **Installable app, reminders** | Web app manifest and a service worker without caching. Daily Web Push at the learner's chosen hour, sent by a Supabase Edge Function on pg_cron, only if today's lesson is not done yet. |
 | **Profile** | Avatar, seven themes, password change, progress backup code, onboarding tour with spotlight. |
 | **Learning tracks** | A course can fork: weeks marked with a `track` stay hidden until the learner picks a path after the shared part, and the track can be switched later in settings. Progress and the observer view follow the chosen path. |
+| **Several courses** | One project, any number of courses. Each course is open to every signed-in user or only to learners the observer granted it to. Every learner keeps separate progress, streak and XP per course; name, avatar, theme and reminders are shared. A learner with more than one course switches in the profile; the observer switches the dashboard per course. A course can bring its own branding through `meta` (name, levels, topics, milestones, tutor prompt). |
 | **Python sandbox** | Code from lessons runs in the browser via Pyodide, no server needed. |
 | **Sync** | Progress lives in `localStorage` and in Postgres. Last write wins on a client timestamp; offline sessions sync on reconnect or when the tab regains focus. Switching accounts on one device never leaks progress between users. |
 | **Observer dashboard** | For users in the `observers` table: a compact list with live presence (Realtime Presence) and "last seen", sorting, and an expandable detail per learner: current lesson, streak, weekly activity, practice runs, opened cheat sheets and concept cards, unresolved mistakes by topic. Updated through Realtime, with polling as a fallback. The observer can create learner accounts (Edge Function `create-learner`, the secret key stays in Supabase) and upload a new course version from the app. |
@@ -60,7 +61,7 @@ flowchart LR
 
     subgraph Supabase["Supabase · EU region"]
         AUTH[Auth<br/>email + password, sign-ups off]
-        PG[(Postgres<br/>progress · observers · course_content)]
+        PG[(Postgres<br/>progress · observers · courses · access)]
         RT[Realtime<br/>changes + presence]
         FN[Edge Functions<br/>create-learner · send-reminders]
         CRON[pg_cron]
@@ -79,9 +80,9 @@ flowchart LR
 Design notes:
 
 - **Security lives in the database, not in the client.** Row Level Security policies in `schema.sql`:
-  - a learner reads and writes only their own progress row;
+  - a learner reads and writes only their own progress rows (one per course);
   - an observer reads all rows and writes none;
-  - course content is readable by signed-in users and writable only by observers;
+  - a course is readable when it is open, granted to the learner in `course_access`, or the reader is an observer; only observers write courses and grant access;
   - push subscriptions belong to their owner; the reminder function reads them with the secret key on the server;
   - nothing can be deleted from the client, and the `anon` role has no table access.
   CI fails if a table is created without RLS.
@@ -97,6 +98,7 @@ JavaScript (ES5, no framework) · Supabase Auth · PostgreSQL with RLS · Supaba
 ## Quick start
 
 1. Create a Supabase project (EU region recommended) and run `schema.sql` in the SQL Editor.
+   Upgrading a project created before multi-course support: run `migrations/001_multi_course.sql` once instead. Existing progress stays where it is (it becomes course `main`), and apps still running the old `app.js` keep syncing.
 2. Load the example course: run `examples/course.example.sql`.
 3. Turn off sign-ups in **Authentication → Providers → Email**, create users in **Authentication → Users**.
 4. Make yourself an observer:
@@ -116,6 +118,32 @@ A course is one JSON document: `weeks → days → cards + tasks + terms`, plus 
 { "t": "fill", "q": "Which function returns the number of items?",
   "code": "print(___(spo2))", "a": ["len"], "e": "len stands for length." }
 ```
+
+### Several courses
+
+Courses live in `course_content`, one row per course id. The observer uploads them from the app (Observer tab → Upload course): the same id replaces a course version without touching progress, a new id creates a new course. New courses start closed; open one to all signed-in users with the toggle under "Access", or grant it to a learner with "Add learner" (an existing account just gets the course).
+
+### Branding a course: `meta`
+
+A course without `meta` is shown with the original "Пульс данных" branding, so courses uploaded before this feature look exactly as they did. A course with `meta` starts from neutral defaults and overrides what it needs:
+
+```json
+"meta": {
+  "brand": "Symfony-Puls",
+  "avatar": "🎻",
+  "sandbox": null,
+  "tags": { "di": "DI и сервисы", "orm": "Doctrine" },
+  "tagIcons": { "di": "DI", "orm": "ORM" },
+  "levels": [[0, "Junior"], [300, "Middle"], [1500, "Senior"]],
+  "noteCats": [["sf", "Symfony"], ["lv", "Laravel → Symfony"]],
+  "tracks": { "api": { "name": "API Platform" } },
+  "milestones": [["Контейнер понят", "Пройдена неделя 1", "b1"], ["Практик", "Сделана практика", "@mission"], ["Финал", "Курс пройден", "@final"]],
+  "tutor": "Ты наставник для PHP-разработчика…",
+  "invite": "Symfony-Puls — ежедневный курс"
+}
+```
+
+`sandbox: "python"` turns on the in-browser Python tab; any other value hides it. A milestone is unlocked by a lesson id or by `@mission`, `@track`, `@final`. Optional texts: `trackPrompt`, `roadmapTitle`, `notesSub`, `notesHint`, `termsHint`, `codeHint`, `missionLabel` (missions can also set their own `label`).
 
 ## License
 

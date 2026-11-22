@@ -6,7 +6,7 @@
 // "Verify JWT" must be OFF for this function: the cron job authenticates with x-cron-secret.
 import webpush from "npm:web-push@3.6.7";
 
-const VERSION = "v1";
+const VERSION = "v2";
 const URL_ = Deno.env.get("SUPABASE_URL")!;
 function serviceKey(): string {
   const k = Deno.env.get("SERVICE_KEY");
@@ -49,15 +49,19 @@ Deno.serve(async (req) => {
 
   const ids = [...new Set(due.map((s) => s.user_id))];
   const prog = await (await fetch(`${URL_}/rest/v1/progress?select=user_id,state&user_id=in.(${ids.join(",")})`, { headers: H })).json();
-  const byUser: Record<string, any> = {};
-  if (Array.isArray(prog)) for (const p of prog) byUser[p.user_id] = p.state || {};
+  // One row per learner and course: a lesson in any course counts as studying today.
+  const byUser: Record<string, { days: Record<string, unknown>; frozen: Record<string, unknown> }> = {};
+  if (Array.isArray(prog)) for (const p of prog) {
+    const st = p.state || {}, u = byUser[p.user_id] ||= { days: {}, frozen: {} };
+    Object.assign(u.days, st.days || {}); Object.assign(u.frozen, st.frozen || {});
+  }
 
   let sent = 0, skipped = 0, gone = 0;
   for (const s of due) {
-    const l = local(s.tz), st = byUser[s.user_id] || {}, days = st.days || {};
+    const l = local(s.tz), st = byUser[s.user_id] || { days: {}, frozen: {} }, days = st.days;
     const mark = () => fetch(`${URL_}/rest/v1/push_subs?endpoint=eq.${encodeURIComponent(s.endpoint)}`, { method: "PATCH", headers: H, body: JSON.stringify({ last_sent: l.date }) });
     if (days[l.date] !== undefined) { skipped++; await mark(); continue; }
-    const n = streakBefore(days, st.frozen || {}, l.date);
+    const n = streakBefore(days, st.frozen, l.date);
     const body = n >= 2
       ? `Серия ♥ ${n} ${plural(n, "день", "дня", "дней")} подряд — сегодняшний урок её продолжит.`
       : "Сегодняшний урок ждёт — около 15 минут.";

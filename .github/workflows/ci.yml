@@ -25,6 +25,7 @@ jobs:
           if (!Array.isArray(c.weeks) || !c.weeks.length) throw new Error('weeks missing');
           for (const w of c.weeks) for (const d of w.days) {
             if (!d.id || !d.title || !Array.isArray(d.cards)) throw new Error('bad lesson ' + d.id);
+            if (c.meta && typeof c.meta !== 'object') throw new Error('meta must be an object');
             for (const t of d.tasks || []) if (!['mc','fill','order','match'].includes(t.t)) throw new Error('bad task in ' + d.id);
           }
           console.log('ok');"
@@ -40,7 +41,7 @@ jobs:
 
       - name: Every table has row level security
         run: |
-          for f in schema.sql push.sql; do
+          for f in schema.sql push.sql migrations/*.sql; do
             tables=$(grep -oE "create table if not exists public\.[a-z_]+" $f | awk -F. '{print $2}' | sort -u)
             for t in $tables; do
               grep -q "alter table public.$t *enable row level security" $f || { echo "RLS missing on $t in $f"; exit 1; }
