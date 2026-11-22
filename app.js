@@ -1,19 +1,58 @@
 (function(){
 'use strict';
 var C={weeks:[],roadmap:[]}, WK=[], ALL=[], LBY={}, TOTAL=0, KEY='puls-daten-v1', CKEY='puls-course-v1', TKEY='puls-theme', courseErr='';
+/* Несколько курсов. Курс 'main' хранится под прежними ключами, поэтому старый прогресс и кэш подхватываются как были. */
+var CUR='main', CAT=[], OLDDB=false, CURKEY='puls-cur', CATKEY='puls-catalog';
+function kS(id){return id==='main'?'puls-daten-v1':'puls-daten-v1:'+id;}
+function kC(id){return id==='main'?'puls-course-v1':'puls-course-v1:'+id;}
+function setKeys(){KEY=kS(CUR);CKEY=kC(CUR);}
+try{CUR=localStorage.getItem(CURKEY)||'main';CAT=JSON.parse(localStorage.getItem(CATKEY)||'[]')||[];}catch(e){}
+if(!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(CUR))CUR='main';setKeys();
 /* Неделя с полем track входит в курс, только если ученица выбрала этот трек. До выбора курс заканчивается перед первой неделей трека. */
 function weeksFor(st){st=st||{};var out=[],stop=false;(C.weeks||[]).forEach(function(w){if(stop)return;if(w.track){if(st.track===w.track)out.push(w);else if(!st.track)stop=true;}else out.push(w);});return out;}
 function daysFor(st){var a=[];weeksFor(st).forEach(function(w){a=a.concat(w.days);});return a;}
 function rebuild(){WK=weeksFor(S);ALL=[];WK.forEach(function(w,wi){w.days.forEach(function(d){d.week=wi;d.idx=ALL.length;ALL.push(d);});});}
-function setCourse(c){if(!c||!c.weeks)return false;C=c;LBY={};TOTAL=0;var tr=null;
+function setCourse(c){if(!c||!c.weeks)return false;C=c;applyMeta(c);LBY={};TOTAL=0;var tr=null;
   C.weeks.forEach(function(w){if(w.track&&!tr)tr=w.track;if(!w.track||w.track===tr)TOTAL+=w.days.length;w.days.forEach(function(d){LBY[d.id]=d;(d.tasks||[]).forEach(function(t,i){t._k=d.id+':'+i;t._tag=d.tag;});});});
   rebuild();return true;}
 function hasTracks(){return (C.weeks||[]).some(function(w){return !!w.track;});}
-function trackName(t){var m=C.tracks||{};return (m[t]&&m[t].name)||({ds:'Medical Data Science',dh:'Digital Health'})[t]||t;}
+function trackList(){var o=[];(C.weeks||[]).forEach(function(w){if(w.track&&o.indexOf(w.track)<0)o.push(w.track);});return o;}
+function trackName(t){var m=C.tracks||{},d=M.tracks||{};return (m[t]&&m[t].name)||(d[t]&&d[t].name)||t;}
+/* Оформление курса. Курс без поля meta получает оформление первого курса («Пульс данных»),
+   чтобы уже загруженные курсы выглядели как раньше. Курс с meta начинает с нейтральных значений и переопределяет любое из них. */
+var LEGACY={brand:'Пульс данных',avatar:'🩺',sandbox:'python',
+  levels:[[0,'Новичок в отделении'],[120,'Сборщик данных'],[300,'Младший аналитик'],[550,'Детектив данных'],[900,'Клинический аналитик'],[1400,'Знаток Python'],[2000,'Хранитель таблиц'],[3000,'Статистик у постели'],[4500,'Строитель моделей'],[6500,'Переводчик стандартов'],[9000,'Знаток регуляторики'],[12000,'Исследователь сигналов'],[15000,'Специалист своего трека'],[18000,'Готова к новой профессии']],
+  tags:{py:'Python',dom:'Медицина и ИТ',stat:'Статистика',sql:'SQL',ml:'Машинное обучение',reg:'Регуляторика',sig:'Сигналы',car:'Карьера',boss:'Контрольная'},
+  tagIcons:{py:'py',dom:'🏥',stat:'x̄ σ',sql:'SQL',ml:'ML',reg:'§',sig:'∿',car:'CV',boss:'★'},
+  noteCats:[['py','Python'],['data','Данные'],['stat','Статистика и ML'],['med','Медицина и право'],['job','Карьера']],
+  tracks:{ds:{name:'Medical Data Science'},dh:{name:'Digital Health'}},
+  trackPrompt:'Выбери трек на следующие пять недель: Medical Data Science — модели и исследования, Digital Health — продукт, стандарты и качество. Сменить можно в профиле.',
+  roadmapTitle:'Маршрут до смены профессии',
+  notesSub:'Короткие справки: синтаксис, таблицы, формулы, стандарты. Открывай, когда пишешь код в Colab или читаешь вакансию.',
+  notesHint:'Поиск: groupby, JOIN, p-value, FHIR…', termsHint:'Поиск: Datenschutz, cohort, выборка…', codeHint:'Поиск: список, цикл, JOIN…',
+  missionLabel:'Открыть Google Colab',
+  milestones:[['Первая смена','Контрольная недели 1','b1'],['Практик','Сделана практика в Colab','@mission'],['Табличный ум','Пройдена неделя 3','b3'],['Первый месяц','Все 28 дней','b4'],['Проект 1','Разведочный анализ','b9'],['Проект 2','Модель прогноза','b15'],['Свой путь','Выбран трек','@track'],['Финал','Курс пройден целиком','w36_b']],
+  tutor:'Ты терпеливый наставник. Ученица — медицинский техник из немецкой клиники, начинает учить medical data science с нуля. Объясни по-русски, просто, в 3–5 предложениях, почему правильный ответ именно такой. Приведи один пример из больничной практики. Без приветствий, без разметки.',
+  invite:'Пульс данных — ежедневный курс Medical Data Science', tour:'legacy'};
+var NEUTRAL={brand:'Pulse',avatar:'📘',sandbox:null,
+  levels:[[0,'Новичок'],[120,'Ученик'],[300,'Практик'],[550,'Уверенный'],[900,'Продвинутый'],[1400,'Знаток'],[2000,'Эксперт'],[3000,'Мастер'],[4500,'Наставник'],[6500,'Легенда']],
+  tags:{boss:'Контрольная'}, tagIcons:{boss:'★'}, noteCats:[], tracks:{},
+  trackPrompt:'Общая часть пройдена. Выбери, как продолжить курс. Сменить можно в профиле.',
+  roadmapTitle:'Дальше по плану',
+  notesSub:'Короткие справки по темам курса: синтаксис, таблицы, примеры.',
+  notesHint:'Поиск по шпаргалкам…', termsHint:'Поиск по терминам…', codeHint:'Поиск по карточкам…',
+  missionLabel:'Открыть задание',
+  milestones:[['Практик','Сделано практическое задание','@mission'],['Свой путь','Выбран трек','@track'],['Финал','Курс пройден целиком','@final']],
+  tutor:'Ты терпеливый наставник. Объясни по-русски, просто, в 3–5 предложениях, почему правильный ответ именно такой. Приведи один короткий практический пример. Без приветствий, без разметки.',
+  invite:'', tour:'neutral'};
+var M=LEGACY, LEVELS=M.levels, TAGS=M.tags, TAG_ICO=M.tagIcons, NCATS=M.noteCats;
+function applyMeta(c){var m=c&&c.meta&&typeof c.meta==='object'?c.meta:null,base=m?NEUTRAL:LEGACY;M=Object.assign({},base,m||{});
+  M.tags=Object.assign({},base.tags,m&&m.tags||{});M.tagIcons=Object.assign({},base.tagIcons,m&&m.tagIcons||{});
+  if(!Array.isArray(M.levels)||!M.levels.length)M.levels=base.levels;
+  LEVELS=M.levels;TAGS=M.tags;TAG_ICO=M.tagIcons;NCATS=M.noteCats||[];
+  try{document.title=M.brand;}catch(e){}}
+function sandOn(){return M.sandbox==='python';}
 if(window.COURSE)setCourse(window.COURSE);
-var LEVELS=[[0,'Новичок в отделении'],[120,'Сборщик данных'],[300,'Младший аналитик'],[550,'Детектив данных'],[900,'Клинический аналитик'],[1400,'Знаток Python'],[2000,'Хранитель таблиц'],[3000,'Статистик у постели'],[4500,'Строитель моделей'],[6500,'Переводчик стандартов'],[9000,'Знаток регуляторики'],[12000,'Исследователь сигналов'],[15000,'Специалист своего трека'],[18000,'Готова к новой профессии']];
-var TAGS={py:'Python',dom:'Медицина и ИТ',stat:'Статистика',sql:'SQL',ml:'Машинное обучение',reg:'Регуляторика',sig:'Сигналы',car:'Карьера',boss:'Контрольная'};
-var TAG_ICO={py:'py',dom:'🏥',stat:'x̄ σ',sql:'SQL',ml:'ML',reg:'§',sig:'∿',car:'CV',boss:'★'};
 var $=function(s){return document.querySelector(s);};
 function esc(s){return String(s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
 function ds(d){var m=d.getMonth()+1,x=d.getDate();return d.getFullYear()+'-'+(m<10?'0':'')+m+'-'+(x<10?'0':'')+x;}
@@ -46,11 +85,14 @@ function authErr(r){var e=r&&r.error;return !!r&&(r.status===401||(!!e&&/jwt|PGR
 var lostShown=false;
 function sessionLost(){if(!SB)return;loginEm=EMAIL||S.email||loginEm;presStop();SB.auth.signOut({scope:'local'}).then(function(){},function(){});onSession(null);if(!lostShown){lostShown=true;setTimeout(function(){lostShown=false;},5000);toast('Сессия устарела. Войди ещё раз — прогресс на месте.');}}
 function push(){if(!SB||!ME||OWNER)return;if(pushing){again=true;return;}pushing=true;again=false;
-  SB.from('progress').upsert({user_id:ME,state:JSON.parse(JSON.stringify(S)),updated_at:new Date().toISOString()})
+  var row={user_id:ME,state:JSON.parse(JSON.stringify(S)),updated_at:new Date().toISOString()};if(!OLDDB)row.course_id=CUR;
+  SB.from('progress').upsert(row,OLDDB?undefined:{onConflict:'user_id,course_id'})
   .then(function(r){if(authErr(r)){pushing=false;sessionLost();return;}syncState=r.error?'error':'cloud';},function(){syncState='error';})
   .then(function(){pushing=false;if(again)push();if(view==='progress')render();});}
-function pull(){if(!SB||!ME||OWNER)return;
-  SB.from('progress').select('state').eq('user_id',ME).maybeSingle().then(function(r){
+/* своя строка прогресса в текущем курсе */
+function myRow(){var q=SB.from('progress').select('state').eq('user_id',ME);if(!OLDDB)q=q.eq('course_id',CUR);return q.maybeSingle();}
+function pull(){if(!SB||!ME||OWNER)return;var cid=CUR;
+  myRow().then(function(r){if(cid!==CUR)return;
     if(authErr(r)){sessionLost();return;}
     if(r.error){syncState='error';if(view==='progress')render();return;}
     var c=r.data&&r.data.state;
@@ -68,7 +110,7 @@ function presStart(){if(!SB||!ME||PCH||!SB.channel)return;try{
 function presStop(){if(PCH){try{SB.removeChannel(PCH);}catch(e){}PCH=null;ONLINE={};}clearInterval(BEAT);BEAT=null;}
 /* раз в 5 минут, пока приложение открыто: отметка «была в сети» для наблюдателя */
 function beat(){if(!SB||!ME||OWNER||document.hidden)return;
-  SB.from('progress').select('state').eq('user_id',ME).maybeSingle().then(function(r){if(authErr(r)){sessionLost();return;}if(r.error)return;var c=r.data&&r.data.state;
+  var cid=CUR;myRow().then(function(r){if(cid!==CUR)return;if(authErr(r)){sessionLost();return;}if(r.error)return;var c=r.data&&r.data.state;
     if(c&&(c.t||0)>(S.t||0)){adopt(c);if(view!=='run'&&view!=='result')render();}S.lastOn=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}push();},function(){});}
 function beatStart(){clearInterval(BEAT);setTimeout(beat,1500);BEAT=setInterval(beat,5*60000);}
 function presPaint(){document.querySelectorAll('[data-uid]').forEach(function(el){var on=!!ONLINE[el.dataset.uid];el.classList.toggle('on',on);el.title=on?'в сети':'';});
@@ -82,20 +124,48 @@ function onSession(sess){var id=sess&&sess.user?sess.user.id:null;
   if(S.uid&&S.uid!==ME){S=def();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
   S.uid=ME;S.email=EMAIL;if(!S.name&&sess.user.user_metadata&&sess.user.user_metadata.name)S.name=String(sess.user.user_metadata.name).slice(0,30);
   SB.from('observers').select('user_id').eq('user_id',ME).maybeSingle().then(function(r){OWNER=!!(r&&r.data);},function(){OWNER=false;})
-  .then(loadCourse)
+  .then(loadCatalog).then(pickCourse).then(loadCourse)
   .then(function(ok){if(!ok){view='nocourse';render();return;}
     if(OWNER)syncState='owner';else{syncState='connecting';pull();beatStart();setTimeout(pushSync,3000);}
     if(view==='login'){view='path';try{history.replaceState(null,'','#path');}catch(e){}}else if(view==='boot'||view==='nocourse')view=fromHash();render();});}
 function loadCourse(){
-  return SB.from('course_content').select('data').eq('id','main').maybeSingle().then(function(r){
+  var cid=CUR;
+  return SB.from('course_content').select('data').eq('id',cid).maybeSingle().then(function(r){
+    if(cid!==CUR)return true;
     if(!r.error&&r.data&&setCourse(r.data.data)){courseErr='';try{localStorage.setItem(CKEY,JSON.stringify(r.data.data));}catch(e){}return true;}
     courseErr=r.error?'Сервер не отдал уроки: '+(r.error.message||'ошибка доступа')+'.':'В базе нет уроков. Выполни content.sql в Supabase.';
     return fromCache();
   },function(){courseErr='Нет связи с сервером.';return fromCache();});}
+/* ---------- курсы ---------- */
+function courseTitle(id){var c=CAT.filter(function(x){return x.id===id;})[0];return (c&&c.title)||(id===CUR?M.brand:id);}
+function loadCatalog(){if(!SB)return Promise.resolve();
+  return SB.from('course_content').select('id,title,open').order('id').then(function(r){
+    if(r.error){if(/title|open|42703|column/i.test(String(r.error.message)+' '+String(r.error.code))){OLDDB=true;CAT=[{id:'main',title:'',open:true}];}return;}
+    OLDDB=false;CAT=(r.data||[]).map(function(x){return {id:x.id,title:x.title||'',open:!!x.open};});
+    try{localStorage.setItem(CATKEY,JSON.stringify(CAT));}catch(e){}},function(){});}
+/* курс, который открыть: последний выбранный на этом устройстве, иначе main, иначе первый доступный */
+function pickCourse(){var ids=CAT.map(function(x){return x.id;});if(!ids.length||ids.indexOf(CUR)>=0)return;useCourse(ids.indexOf('main')>=0?'main':ids[0]);}
+/* профиль (имя, аватар, тема, напоминания, пройденное обучение) общий для всех курсов */
+function carry(o){var n=def();['name','avatar','theme','remind','remindAsk','tour','tourDone','uid','email'].forEach(function(k){if(o&&o[k]!==undefined)n[k]=o[k];});return n;}
+function useCourse(id){if(id===CUR)return;var prev=S;CUR=id;setKeys();try{localStorage.setItem(CURKEY,CUR);}catch(e){}
+  var st=null;try{var raw=localStorage.getItem(KEY);if(raw)st=fix(JSON.parse(raw));}catch(e){}
+  if(!st||(ME&&st.uid&&st.uid!==ME))st=carry(prev);
+  S=st;R=null;T=null;NOTE=null;NCAT='all';NQ='';GQ='';
+  var c=null;try{c=JSON.parse(localStorage.getItem(CKEY)||'null');}catch(e){}
+  if(!c||!setCourse(c)){C={weeks:[],roadmap:[]};setCourse(C);}}
+function switchCourse(id){if(id===CUR||!CAT.some(function(x){return x.id===id;}))return;
+  var keep=view==='watch'?'watch':'path';clearTimeout(pushT);if(SB&&ME&&!OWNER&&S.t)push();
+  useCourse(id);view='boot';render();
+  (SB&&ME?loadCourse():Promise.resolve(fromCache())).then(function(ok){if(!ok){view='nocourse';render();return;}
+    if(SB&&ME&&!OWNER){syncState='connecting';pull();}
+    view=keep;try{history.replaceState(null,'','#'+keep);}catch(e){}render();window.scrollTo(0,0);toast('Курс: '+courseTitle(id)+'.');});}
+function courseLine(){return CAT.length>1?'<div class="row small crsline" style="gap:6px"><span class="muted">Курс:</span><b>'+esc(courseTitle(CUR))+'</b><button class="linkbtn" data-a="courses">сменить</button></div>':'';}
+function courseBlock(){if(CAT.length<2)return '';return '<div id="courses"><div class="small" style="margin-bottom:6px"><b>Курсы</b></div><p class="small muted" style="margin:0 0 8px">У каждого курса свой прогресс, серия и XP. Имя, аватар, тема и напоминания общие.</p><div class="row" style="gap:8px">'+
+  CAT.map(function(c){var on=c.id===CUR;return '<button class="btn small'+(on?'':' ghost')+'" data-a="course" data-v="'+esc(c.id)+'"'+(on?' aria-pressed="true"':'')+'>'+(on?'✓ ':'')+esc(c.title||c.id)+'</button>';}).join('')+'</div></div>';}
 function fromCache(){try{var c=JSON.parse(localStorage.getItem(CKEY)||'null');if(c&&setCourse(c)){toast('Нет связи: уроки открыты из сохранённой копии.');return true;}}catch(e){}return false;}
-var BRAND='<div class="brand"><svg viewBox="0 0 28 16"><path d="M0 9h7l2-3 3 9 3-14 3 8h10"/></svg>Пульс данных</div>';
+function brandH(){return '<div class="brand"><svg viewBox="0 0 28 16"><path d="M0 9h7l2-3 3 9 3-14 3 8h10"/></svg>'+esc(M.brand)+'</div>';}
 function vNoCourse(){var noCfg=!cfgOk();
-  return '<div class="top">'+BRAND+'</div><section class="card hero"><h1>'+(noCfg?'Курс не настроен':'Уроки не загрузились')+'</h1><p class="small" style="margin:0">'+
+  return '<div class="top">'+brandH()+'</div><section class="card hero"><h1>'+(noCfg?'Курс не настроен':'Уроки не загрузились')+'</h1><p class="small" style="margin:0">'+
   (noCfg?'Заполни адрес базы и ключ в config.js. Подробности в README.':esc(courseErr))+'</p>'+(noCfg?'':'<div class="foot"><button class="btn" data-a="retry">Попробовать снова</button>'+(ME?'<button class="btn ghost" data-a="logout">Выйти</button>':'')+'</div>')+'</section>';}
 function initCloud(){if(!cfgOk())return;var c=window.PULS_CONFIG;
   SB=window.supabase.createClient(c.url,c.anonKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});
@@ -109,7 +179,7 @@ function doLogin(){var em=$('#em').value.trim(),pw=$('#pw').value;loginEm=em;if(
   SB.auth.signInWithPassword({email:em,password:pw}).then(function(r){loginBusy=false;
     if(r.error){loginErr=/invalid/i.test(r.error.message)?'Неверный email или пароль.':'Не получилось войти: '+r.error.message;render();return;}
     onSession(r.data.session);},function(){loginBusy=false;loginErr='Нет связи с сервером. Проверь интернет.';render();});}
-function vLogin(){return '<div class="top">'+BRAND+'</div>'+
+function vLogin(){return '<div class="top">'+brandH()+'</div>'+
   '<section class="card hero"><div class="eyebrow">Вход</div><h1>Твой курс ждёт</h1><p class="small muted" style="margin:0">Вход нужен, чтобы прогресс сохранялся на сервере и был виден на всех твоих устройствах. Аккаунт выдаёт владелец курса, регистрации нет.</p>'+
   '<form id="lf" style="display:flex;flex-direction:column;gap:10px"><label class="small" for="em">Email</label><input class="txt" style="max-width:none" id="em" type="email" autocomplete="username" inputmode="email" required value="'+esc(loginEm)+'">'+
   '<label class="small" for="pw">Пароль</label><input class="txt" style="max-width:none" id="pw" type="password" autocomplete="current-password" required>'+
@@ -152,8 +222,8 @@ function heat(st){st=st||S;var cells='',t=new Date(),start=addDays(t,-(((t.getDa
 
 /* ---------- шапка ---------- */
 function header(){var nm=(S.name||'').trim().split(/\s+/)[0]||'Профиль',on=view==='progress';
-  return '<div class="top hdr"><div class="hl">'+BRAND+''+(OWNER?'<div class="small muted">Режим наблюдателя</div>':'<div class="chips"><span class="chip num" title="Дней подряд"><b>♥</b> '+streak()+'</span><span class="chip xp num" title="Очки опыта"><b>XP</b> '+S.xp+'</span></div>')+'</div>'+
-  '<button class="mebtn'+(on?' on':'')+'" data-a="tab" data-v="progress" aria-label="Профиль и прогресс"'+(on?' aria-current="page"':'')+'><span class="meav" aria-hidden="true">'+esc(S.avatar||'🩺')+'</span><span class="mename">'+esc(nm)+'</span></button></div>';}
+  return '<div class="top hdr"><div class="hl">'+brandH()+''+(OWNER?'<div class="small muted">Режим наблюдателя</div>':'<div class="chips"><span class="chip num" title="Дней подряд"><b>♥</b> '+streak()+'</span><span class="chip xp num" title="Очки опыта"><b>XP</b> '+S.xp+'</span></div>')+'</div>'+
+  '<button class="mebtn'+(on?' on':'')+'" data-a="tab" data-v="progress" aria-label="Профиль и прогресс"'+(on?' aria-current="page"':'')+'><span class="meav" aria-hidden="true">'+esc(S.avatar||M.avatar)+'</span><span class="mename">'+esc(nm)+'</span></button></div>';}
 
 /* ---------- сегодня ---------- */
 function dayRow(L){var done=!!S.done[L.id],nx=nextIdx()===L.idx,cls=done?'done':nx?'next':'lock';
@@ -161,9 +231,9 @@ function dayRow(L){var done=!!S.done[L.id],nx=nextIdx()===L.idx,cls=done?'done':
   return '<button class="day '+cls+'" data-a="open" data-i="'+L.idx+'"'+(cls==='lock'?' aria-disabled="true"':'')+'><span class="n">'+(done?'✓':L.idx+1)+'</span><span class="grow"><span class="tt">'+esc(L.title)+'</span><br><span class="st">'+st+'</span></span><span class="tag">'+(TAGS[L.tag]||'')+'</span></button>';}
 function vPath(){var s=streak(),ni=nextIdx(),did=S.days[today()]!==undefined,cap=newToday()>=2,h=header(),dc=doneCount(),lv=level(),body;
   if(S.tour&&!S.tourDone&&TOUR<0)h+='<button class="tourcard" data-a="tour"><span class="tci" aria-hidden="true">🎓</span><span class="grow"><b>Что нового — за 30 секунд</b><br><span class="small">Практика, шпаргалки, словарь, напоминания</span></span><span class="tcb" aria-hidden="true">▶</span></button>';
-  h+=remCard();
+  h+=remCard()+courseLine();
   var rev=dc?'<button class="linkbtn" data-a="review">Повторение пройденного</button>':'';
-  if(needTrack()){body='<div class="eyebrow">Развилка</div><h2 class="daytitle">Общая часть пройдена</h2><p class="small" style="margin:0">Выбери трек на следующие пять недель: Medical Data Science — модели и исследования, Digital Health — продукт, стандарты и качество. Сменить можно в профиле.</p><div class="foot"><button class="btn" data-a="track" data-v="ds">'+esc(trackName('ds'))+'</button><button class="btn ghost" data-a="track" data-v="dh">'+esc(trackName('dh'))+'</button></div>';}
+  if(needTrack()){body='<div class="eyebrow">Развилка</div><h2 class="daytitle">Общая часть пройдена</h2><p class="small" style="margin:0">'+esc(M.trackPrompt)+'</p><div class="foot">'+trackList().map(function(t,i){return '<button class="btn'+(i?' ghost':'')+'" data-a="track" data-v="'+esc(t)+'">'+esc(trackName(t))+'</button>';}).join('')+'</div>';}
   else if(ni<0){body='<div class="eyebrow">🏁 Финиш</div><h2 class="daytitle">Весь курс пройден</h2><p class="small" style="margin:0">Повторение и практика держат знания свежими, а профиль хранит весь путь.</p><div class="foot"><button class="btn" data-a="review">Повторение</button><button class="btn ghost" data-a="tab" data-v="practice">Практика</button></div>';}
   else if(!did){var L=ALL[ni];
     body='<div class="eyebrow">Сегодня · день '+(ni+1)+'</div><h2 class="daytitle">'+esc(L.title)+'</h2><p class="small muted" style="margin:0">'+(TAGS[L.tag]||'')+' · '+(L.boss?'контрольная и практика, ≈ 20 минут':'≈ 15 минут')+'</p>'+
@@ -174,7 +244,7 @@ function vPath(){var s=streak(),ni=nextIdx(),did=S.days[today()]!==undefined,cap
   h+='<section class="card hero todayc'+(did&&ni>=0&&!needTrack()?' done':'')+'"><div class="todaygo">'+body+'</div><div class="lvline"><div class="row small" style="justify-content:space-between"><span><b>Уровень '+(lv.i+1)+'.</b> '+lv.name+'</span><span class="muted num">'+S.xp+(lv.to?' / '+lv.to:'')+' XP</span></div><div class="bar" style="margin-top:6px"><i style="width:'+lvPct()+'%"></i></div></div></section>';
   WK.forEach(function(w,wi){var d=w.days.filter(function(l){return S.done[l.id];}).length;
     h+='<section class="week"><div><div class="eyebrow">Неделя '+(wi+1)+(w.track?' · трек '+esc(trackName(w.track)):'')+' · <span class="num">'+d+' из '+w.days.length+'</span></div><h2>'+esc(w.title)+'</h2><p class="small muted" style="margin:4px 0 0">'+esc(w.sub)+'</p></div><div class="days">'+w.days.map(dayRow).join('')+'</div></section>';});
-  if(C.roadmap&&C.roadmap.length)h+='<section class="card"><div class="eyebrow">Дальше по плану</div><h2 style="margin:4px 0 12px">Маршрут до смены профессии</h2><div class="road">'+C.roadmap.map(function(r){return '<div><span class="small muted">'+r.w+'</span><br><b>'+r.t+'</b><br><span class="small">'+r.d+'</span></div>';}).join('')+'</div></section>';
+  if(C.roadmap&&C.roadmap.length)h+='<section class="card"><div class="eyebrow">Дальше по плану</div><h2 style="margin:4px 0 12px">'+esc(M.roadmapTitle)+'</h2><div class="road">'+C.roadmap.map(function(r){return '<div><span class="small muted">'+r.w+'</span><br><b>'+r.t+'</b><br><span class="small">'+r.d+'</span></div>';}).join('')+'</div></section>';
   return h;}
 
 /* ---------- практика ---------- */
@@ -199,16 +269,16 @@ function openPractice(tag){var pool=tag==='miss'?doneTasks().filter(function(x){
   startRun({id:'prac-'+tag,title:tag==='miss'?'Работа над ошибками':'Практика: '+(TAGS[tag]||tag),tag:tag==='miss'?'stat':tag},'practice',tasks.map(function(t){return {k:'task',t:t,first:true};}),false,tag);}
 
 /* ---------- шпаргалки ---------- */
-var NCAT='all', NQ='', NOTE=null, NCATS=[['py','Python'],['data','Данные'],['stat','Статистика и ML'],['med','Медицина и право'],['job','Карьера']];
+var NCAT='all', NQ='', NOTE=null;
 function notes(){return (C.notes||[]).filter(function(n){return n&&n.id;});}
 function md(x){return esc(x).replace(/\*\*(.+?)\*\*/g,'<b>$1</b>');}
 function nHay(n){var b=(n.b||[]).map(function(x){return (x.h||'')+' '+(x.head||[]).join(' ')+' '+(x.r||[]).map(function(r){return r.join(' ');}).join(' ')+' '+(x.l||[]).join(' ')+' '+(x.code||'');}).join(' ');
   return (n.h+' '+n.tip+' '+b).replace(/\*\*/g,'').toLowerCase();}
 function nHide(n){return (NCAT!=='all'&&n.cat!==NCAT)||(NQ&&nHay(n).indexOf(NQ.toLowerCase())<0);}
-function vNotes(){var ns=notes(),h=header()+'<section><div class="eyebrow">Шпаргалки</div><h1>Всё под рукой</h1><p class="small muted" style="margin:6px 0 0;max-width:60ch">Короткие справки: синтаксис, таблицы, формулы, стандарты. Открывай, когда пишешь код в Colab или читаешь вакансию.</p></section>';
+function vNotes(){var ns=notes(),h=header()+'<section><div class="eyebrow">Шпаргалки</div><h1>Всё под рукой</h1><p class="small muted" style="margin:6px 0 0;max-width:60ch">'+esc(M.notesSub)+'</p></section>';
   if(!ns.length)return h+'<section class="card"><p class="small" style="margin:0">Шпаргалки ещё не загружены в курс. Владелец курса может обновить его во вкладке «Наблюдение».</p></section>';
-  h+='<input class="txt nsearch" id="nq" type="search" autocomplete="off" placeholder="Поиск: groupby, JOIN, p-value, FHIR…" value="'+esc(NQ)+'">';
-  h+='<div class="ncats" role="tablist">'+[['all','Все']].concat(NCATS).map(function(c){return '<button class="chip'+(NCAT===c[0]?' on':'')+'" role="tab" aria-selected="'+(NCAT===c[0])+'" data-a="ncat" data-v="'+c[0]+'">'+esc(c[1])+'</button>';}).join('')+'</div><div class="secs nlist">';
+  h+='<input class="txt nsearch" id="nq" type="search" autocomplete="off" placeholder="'+esc(M.notesHint)+'" value="'+esc(NQ)+'">';
+  if(NCATS.length)h+='<div class="ncats" role="tablist">'+[['all','Все']].concat(NCATS).map(function(c){return '<button class="chip'+(NCAT===c[0]?' on':'')+'" role="tab" aria-selected="'+(NCAT===c[0])+'" data-a="ncat" data-v="'+c[0]+'">'+esc(c[1])+'</button>';}).join('')+'</div>';h+='<div class="secs nlist">';
   ns.forEach(function(n){h+='<button class="sec nrow" data-a="note" data-v="'+esc(n.id)+'" data-cat="'+esc(n.cat)+'" data-q="'+esc(nHay(n))+'"'+(nHide(n)?' hidden':'')+'><span class="ico nico" aria-hidden="true">'+esc(n.ico||'📒')+'</span><span class="grow"><span class="tt">'+esc(n.h)+'</span><span class="st">'+esc(n.tip)+'</span></span><span aria-hidden="true" class="muted chev">›</span></button>';});
   h+='</div><p class="small muted nempty"'+(ns.some(function(n){return !nHide(n);})?' hidden':'')+'>Ничего не нашлось. Попробуй другое слово.</p>';return h;}
 /* ячейка с кодом: есть скобки, точки, кавычки или =, и нет кириллицы */
@@ -226,7 +296,7 @@ function vNote(){var n=notes().filter(function(x){return x.id===NOTE;})[0];if(!n
 function openNote(id){S.nt[id]=(S.nt[id]||0)+1;save();if(view!=='note'){BACK=view;try{history.pushState({pulsNote:1},'');}catch(e){}}NOTE=id;view='note';render();window.scrollTo(0,0);}
 function closeNote(){NOTE=null;view='notes';render();window.scrollTo(0,0);}
 /* код для песочницы: Python, без SQL, git, HTTP и установки пакетов */
-function runnable(c){return !!c&&!/^\s*(SELECT|WITH|GET|git |!pip|\{)/i.test(c)&&!/(X_tr|\bX\b|pipe\.|plt\.|requests|read_csv|tabelle|\(a, b|\(x, y)/.test(c);}
+function runnable(c){return sandOn()&&!!c&&!/^\s*(SELECT|WITH|GET|git |!pip|\{)/i.test(c)&&!/(X_tr|\bX\b|pipe\.|plt\.|requests|read_csv|tabelle|\(a, b|\(x, y)/.test(c);}
 
 /* ---------- словарь ---------- */
 var GT='terms', GQ='';
@@ -237,14 +307,14 @@ function gHay(x){return x.k?(x.k.h+' '+x.k.en+' '+x.k.de+' '+x.k.s+' '+strip(x.k
 function vGloss(){var ts=allTerms(),op=ts.filter(function(x){return x.open;}),ks=concepts(),kop=ks.filter(function(x){return x.open;});
   var h=header()+'<section><div class="eyebrow">Словарь</div><h1>'+(GT==='terms'?'Термины на трёх языках':'Программирование')+'</h1><p class="small muted" style="margin:6px 0 0;max-width:60ch">'+(GT==='terms'?'Немецкий термин, английский и пояснение — так они стоят в вакансиях. Новые открываются после каждого урока.':'Главные понятия кода: что это, пример, что он выведет и типичная ошибка. Нажми на карточку, чтобы раскрыть.')+'</p></section>';
   h+='<div class="seg" role="tablist"><button role="tab" data-a="gtab" data-v="terms" aria-selected="'+(GT==='terms')+'">Термины <span class="num muted">'+op.length+'</span></button><button role="tab" data-a="gtab" data-v="code" aria-selected="'+(GT==='code')+'">Программирование <span class="num muted">'+kop.length+'</span></button></div>';
-  h+='<input class="txt nsearch" id="gq" type="search" autocomplete="off" placeholder="'+(GT==='terms'?'Поиск: Datenschutz, cohort, выборка…':'Поиск: список, цикл, JOIN…')+'" value="'+esc(GQ)+'">';
+  h+='<input class="txt nsearch" id="gq" type="search" autocomplete="off" placeholder="'+esc(GT==='terms'?M.termsHint:M.codeHint)+'" value="'+esc(GQ)+'">';
   if(GT==='terms'){
     if(!op.length)h+='<div class="card">Пройди первый урок, и здесь появятся первые термины.</div>';
     h+='<div class="terms">'+op.map(function(x){return '<div class="term gitem" data-q="'+esc(gHay(x))+'"><b lang="de">'+esc(x.t[0])+'</b><span lang="en">'+esc(x.t[1])+'</span><em>'+esc(x.t[2])+'</em><span class="tday">день '+x.day+'</span></div>';}).join('')+'</div>';
     if(op.length<ts.length)h+='<p class="small muted">Ещё закрыто: '+(ts.length-op.length)+'.</p>';}
   else{
     if(!ks.length)h+='<div class="card">Карточки ещё не загружены в курс. Владелец курса может обновить его во вкладке «Наблюдение».</div>';
-    else if(!kop.length)h+='<div class="card">Первая карточка — «Переменная» — откроется после урока «Python: переменные».</div>';
+    else if(!kop.length)h+='<div class="card">Первая карточка — «'+esc(ks[0].k.h)+'» — откроется после урока «'+esc(ks[0].lt)+'».</div>';
     h+='<div class="cxs">'+kop.map(function(x){var k=x.k;return '<details class="cx gitem" data-q="'+esc(gHay(x))+'" data-id="'+esc(k.id)+'"><summary><span class="grow"><b>'+esc(k.h)+'</b><span class="cxl"><span lang="en">'+esc(k.en)+'</span> · <span lang="de">'+esc(k.de)+'</span></span><span class="cxs1">'+esc(k.s)+'</span></span><span class="chev" aria-hidden="true">›</span></summary>'+
       '<div class="cxb"><p>'+k.t+'</p><div class="eyebrow">Пример</div><pre class="code">'+esc(k.code)+'</pre>'+(k.out?'<div class="eyebrow">Результат</div><pre class="out">'+esc(k.out)+'</pre>':'')+
       (k.tip?'<p class="cxtip"><b>Частая ошибка.</b> '+k.tip+'</p>':'')+'<div class="row">'+(runnable(k.code)?'<button class="btn small ghost" data-a="tosand" data-src="'+esc(k.code)+'">Попробовать в песочнице</button>':'')+(x.day?'<span class="small muted">Урок: день '+x.day+' · '+esc(x.lt)+'</span>':'')+'</div></div></details>';}).join('')+'</div>';
@@ -268,14 +338,22 @@ function runPy(){var ta=$('#src');if(ta)sandSrc=ta.value;execPy(sandSrc,function
 function runHere(){var run=R,pos=R.pos,c=R.q[pos].c;execPy(c.code,function(o){if(R===run&&R.pos===pos){R.out=o;render();}});}
 
 /* ---------- профиль ---------- */
-function badges(){var s=Math.max(S.best,streak()),dn=doneCount(),pr=Object.keys(S.prac).reduce(function(a,k){return a+S.prac[k];},0);return [
+function badges(){var s=Math.max(S.best,streak()),dn=doneCount(),pr=Object.keys(S.prac).reduce(function(a,k){return a+S.prac[k];},0);
+  var hasMission=ALL.some(function(l){return !!l.mission;}),out=[
   ['Первый шаг','Пройден первый урок',dn>=1],['Три дня подряд','Пульс держится 3 дня',s>=3],['Неделя без пропусков','7 дней подряд',s>=7],['Две недели','14 дней подряд',s>=14],['Месяц','30 дней подряд',s>=30],
-  ['Чистая работа','Урок без единой ошибки',S.perfect>=1],['Пять чистых','5 уроков без ошибок',S.perfect>=5],['Первая смена','Контрольная недели 1',!!S.done.b1],['Практик','Сделана практика в Colab',Object.keys(S.missions).length>=1],
-  ['Табличный ум','Пройдена неделя 3',!!S.done.b3],['Первый месяц','Все 28 дней',!!S.done.b4],['Проект 1','Разведочный анализ',!!S.done.b9],['Проект 2','Модель прогноза',!!S.done.b15],['Свой путь','Выбран трек',!!S.track],['Финал','Курс пройден целиком',!!S.done.w36_b],
-  ['Повторение — мать учения','10 повторений',S.reviews>=10],['Тренировка','5 свободных тренировок',pr>=5],['Справочник','Открыто 5 шпаргалок',Object.keys(S.nt).length>=5]];}
+  ['Чистая работа','Урок без единой ошибки',S.perfect>=1],['Пять чистых','5 уроков без ошибок',S.perfect>=5]];
+  /* вехи курса: id урока или особое условие (@mission, @track, @final) */
+  (M.milestones||[]).forEach(function(b){var k=b[2];
+    if(k==='@mission'){if(hasMission||M.tour==='legacy')out.push([b[0],b[1],Object.keys(S.missions).length>=1]);}
+    else if(k==='@track'){if(hasTracks()||M.tour==='legacy')out.push([b[0],b[1],!!S.track]);}
+    else if(k==='@final')out.push([b[0],b[1],dn>0&&nextIdx()<0&&!needTrack()]);
+    else out.push([b[0],b[1],!!S.done[k]]);});
+  out.push(['Повторение — мать учения','10 повторений',S.reviews>=10],['Тренировка','5 свободных тренировок',pr>=5]);
+  if(notes().length||M.tour==='legacy')out.push(['Справочник','Открыто 5 шпаргалок',Object.keys(S.nt).length>=5]);
+  return out;}
 function syncLine(){return ({cloud:'Синхронизация включена: прогресс хранится на защищённом сервере и виден на всех твоих устройствах.',connecting:'Подключаю синхронизацию…',owner:'Ты наблюдатель: твой прогресс хранится только в этом браузере, прогресс учеников — во вкладке «Наблюдение».',error:'Нет связи с сервером. Прогресс сохраняется в этом браузере и отправится, когда связь появится.'})[syncState]||'Прогресс сохраняется автоматически в этом браузере на этом устройстве.';}
 function vProg(){var lv=level(),dn=doneCount(),s=streak();
-  var h=header()+'<section class="card hero"><div class="row" style="gap:14px;flex-wrap:nowrap"><div class="me-av" aria-hidden="true">'+esc(S.avatar||'🩺')+'</div><div class="grow"><div class="eyebrow">Профиль</div><h1 style="margin:2px 0">'+esc(S.name||'Твой прогресс')+'</h1><div class="small"><b>Уровень '+(lv.i+1)+'.</b> '+lv.name+' · <span class="num muted">'+S.xp+' XP</span></div></div></div><div class="bar"><i style="width:'+lvPct()+'%"></i></div></section>';
+  var h=header()+'<section class="card hero"><div class="row" style="gap:14px;flex-wrap:nowrap"><div class="me-av" aria-hidden="true">'+esc(S.avatar||M.avatar)+'</div><div class="grow"><div class="eyebrow">Профиль</div><h1 style="margin:2px 0">'+esc(S.name||'Твой прогресс')+'</h1><div class="small"><b>Уровень '+(lv.i+1)+'.</b> '+lv.name+' · <span class="num muted">'+S.xp+' XP</span></div></div></div><div class="bar"><i style="width:'+lvPct()+'%"></i></div></section>';
   h+='<div class="stats"><div class="stat"><b class="num">'+dn+' / '+TOTAL+'</b><span class="small muted">дней курса</span></div><div class="stat"><b class="num">'+S.xp+'</b><span class="small muted">XP</span></div><div class="stat"><b class="num">'+Math.max(S.best,s)+'</b><span class="small muted">рекорд дней подряд</span></div></div>';
   h+='<section class="card"><div class="row" style="justify-content:space-between;align-items:flex-end"><div><h3>Пульс за 14 дней</h3><div class="row" style="align-items:baseline;gap:8px;margin-top:4px"><span class="big num">'+s+'</span><span class="muted">'+plural(s,'день подряд','дня подряд','дней подряд')+'</span></div></div><div class="small muted" style="text-align:right">Заморозки: <b class="num">'+S.freezes+'</b></div></div><div style="margin-top:10px">'+stripSvg()+'</div></section>';
   h+='<section class="card"><h3>Последние 5 недель</h3><p class="small muted" style="margin:4px 0 10px">Пн–Вс. Зелёный: занималась. Жёлтый: сработала заморозка.</p>'+heat()+'</section>';
@@ -286,9 +364,9 @@ function vProg(){var lv=level(),dn=doneCount(),s=streak();
   h+='<section class="card" style="display:flex;flex-direction:column;gap:14px"><h3>Настройки</h3>'+
     '<div><div class="small" style="margin-bottom:6px"><b>Тема</b></div><div class="themes">'+THEMES.map(function(x){var cur=(S.theme||'auto')===x[0];return '<button class="th" data-a="theme" data-v="'+x[0]+'" aria-pressed="'+cur+'"><span class="sw">'+(x[2]?x[2].map(function(c){return '<i style="background:'+c+'"></i>';}).join(''):'<i style="background:#f2f5f4"></i><i style="background:#0c181d"></i>')+'</span>'+esc(x[1])+'</button>';}).join('')+'</div></div>'+
     '<div><div class="small" style="margin-bottom:6px"><b>Аватар</b></div><div class="avs">'+AVATARS.map(function(a){return '<button class="av" data-a="avatar" data-v="'+a+'" aria-pressed="'+(S.avatar===a)+'">'+a+'</button>';}).join('')+'</div></div>'+
-    remBlock()+
+    remBlock()+courseBlock()+
     '<div class="row"><label for="nm" class="small">Имя</label><input class="txt" id="nm" value="'+esc(S.name)+'" maxlength="30"><button class="btn small" data-a="name">Сохранить</button></div>'+
-    (hasTracks()&&S.track?'<div><div class="small"><b>Трек:</b> '+esc(trackName(S.track))+'. Пройденные уроки обоих треков сохраняются.</div><div class="row" style="margin-top:8px"><button class="btn small ghost" data-a="track" data-v="'+(S.track==='ds'?'dh':'ds')+'">Перейти на '+esc(trackName(S.track==='ds'?'dh':'ds'))+'</button></div></div>':'')+
+    (hasTracks()&&S.track?'<div><div class="small"><b>Трек:</b> '+esc(trackName(S.track))+'. Пройденные уроки всех треков сохраняются.</div><div class="row" style="margin-top:8px">'+trackList().filter(function(t){return t!==S.track;}).map(function(t){return '<button class="btn small ghost" data-a="track" data-v="'+esc(t)+'">Перейти на '+esc(trackName(t))+'</button>';}).join('')+'</div></div>':'')+
     '<p class="small muted" style="margin:0">'+syncLine()+(EMAIL?' Вход: '+esc(EMAIL)+'.':'')+'</p>'+
     '<details><summary class="small">Резервная копия прогресса</summary><p class="small" style="margin:8px 0 10px;max-width:62ch">Код прогресса хранит всё: пройденные дни, XP и серию. Скопируй его и сохрани, например отправь себе в мессенджер. Чтобы восстановить, вставь код и нажми «Восстановить».</p><div class="row"><button class="btn small" data-a="exp">Скопировать код прогресса</button></div><label class="eyebrow" for="code" style="display:block;margin-top:12px">Код</label><textarea id="code" class="txt" style="max-width:100%;min-height:70px;font-family:var(--f-mono);font-size:12px" spellcheck="false" autocomplete="off" placeholder="Вставь сюда сохранённый код"></textarea><div class="row" style="margin-top:8px"><button class="btn small ghost" data-a="imp">Восстановить из кода</button></div></details>'+
     (SB&&ME?'<details><summary class="small">Сменить пароль</summary><form id="pwf" style="display:flex;flex-direction:column;gap:8px;margin-top:8px"><input type="email" autocomplete="username" value="'+esc(EMAIL)+'" hidden><input class="txt" style="max-width:none" id="pw1" type="password" autocomplete="new-password" placeholder="Новый пароль (от 8 символов)"><input class="txt" style="max-width:none" id="pw2" type="password" autocomplete="new-password" placeholder="Повтори пароль"><button class="btn small" type="submit">Сохранить пароль</button></form></details>':'')+
@@ -342,14 +420,19 @@ function remBlock(){if(OWNER)return '';var on=S.remind&&S.remind.on,h=remH(),opt
       (on?'<button class="btn small ghost" data-a="remoff"'+(PUSHBUSY?' disabled':'')+'>Выключить</button><span class="small" style="color:var(--ok)">✓ включены</span>':'<button class="btn small" data-a="remon"'+(PUSHBUSY?' disabled':'')+'>Включить</button>')+'</div>':'')+inst+'</div>';}
 
 /* ---------- наблюдение (только владелец) ---------- */
-var W={docs:null,at:0,err:'',ch:null,poll:null,busy:false,sort:'recent',open:{}};
+var W={docs:null,acc:[],at:0,err:'',ch:null,poll:null,busy:false,sort:'recent',open:{}};
 function ago(t){if(!t)return 'нет данных';var m=Math.round((Date.now()-t)/60000);if(m<1)return 'только что';if(m<60)return m+' мин назад';var hh=Math.round(m/60);if(hh<24)return hh+' ч назад';var d=Math.round(hh/24);return d+' '+plural(d,'день','дня','дней')+' назад';}
 function loadWatch(){if(!SB||!OWNER||W.busy)return;W.busy=true;
-  SB.from('progress').select('user_id,state,updated_at').then(function(r){W.busy=false;
+  var acc=OLDDB?Promise.resolve(null):SB.from('course_access').select('user_id,course_id').then(function(r){return r.error?null:r.data;},function(){return null;});
+  SB.from('progress').select('user_id,state,updated_at'+(OLDDB?'':',course_id')).then(function(r){
+    return acc.then(function(a){W.busy=false;W.acc=a||[];
     if(authErr(r))return sessionLost();
     if(r.error){W.err=r.error.message||'error';}else{W.err='';W.at=Date.now();
-      W.docs=(r.data||[]).filter(function(x){return x.user_id!==ME&&x.state;}).map(function(x){var o=fix(x.state);o._id=x.user_id;return o;});}
-    if(view==='watch')renderKeep();},function(){W.busy=false;W.err='нет связи';if(view==='watch')render();});}
+      W.docs=(r.data||[]).filter(function(x){return x.user_id!==ME&&x.state;}).map(function(x){var o=fix(x.state);o._id=x.user_id;o._c=x.course_id||'main';return o;});}
+    if(view==='watch')renderKeep();});},function(){W.busy=false;W.err='нет связи';if(view==='watch')render();});}
+/* ученики текущего курса; W.open хранится по ученику, поэтому ключ строки — id ученика */
+function wDocs(){return (W.docs||[]).filter(function(x){return OLDDB||x._c===CUR;});}
+function whoName(uid){var d=(W.docs||[]).filter(function(x){return x._id===uid&&(x.name||x.email);})[0];return d?(d.name||d.email):uid.slice(0,8)+'…';}
 /* перерисовка без потери того, что наблюдатель печатает: открытые details, значения полей, фокус */
 function renderKeep(){var app=$('#app');if(!app){render();return;}
   var det=[].map.call(app.querySelectorAll('details'),function(d){return d.open;});
@@ -385,17 +468,27 @@ function learnerLine(st){var id=st._id,open=!!W.open[id],name=st.name||st.email|
   return '<div class="wrow">'+row+(open?learnerDetail(st):'')+'</div>';}
 function vWatch(){if(!OWNER)return header()+'<div class="card">Эта вкладка доступна только владельцу курса.</div>';startWatch();
   var h=header()+'<section><div class="eyebrow">Наблюдение · обновляется вживую</div><h1>Прогресс учеников</h1><p class="small muted wleg" style="margin:6px 0 0">'+(W.at?'Данные получены '+ago(W.at)+'. ':'')+'<span class="wst on"></span> приложение открыто сейчас</p></section>';
+  if(CAT.length>1)h+='<div class="row small" style="gap:6px"><span class="muted">Курс:</span>'+CAT.map(function(c){return '<button class="chipbtn'+(c.id===CUR?' on':'')+'" data-a="course" data-v="'+esc(c.id)+'">'+esc(c.title||c.id)+'</button>';}).join('')+'</div>';
+  var D=wDocs();
   if(W.err)h+='<div class="card">Не удалось получить данные ('+esc(W.err)+'). Проверь интернет и обнови страницу.</div>';
   else if(!W.docs)h+='<div class="card">Загружаю…</div>';
-  else if(!W.docs.length)h+='<div class="card">Пока никто не синхронизировал прогресс. Он появится здесь после первого входа ученицы.</div>';
-  else{var td=today(),act=W.docs.filter(function(x){return x.days[td]!==undefined;}).length,sort=W.sort;
+  else if(!D.length)h+='<div class="card">'+(CAT.length>1?'В этом курсе пока никто не синхронизировал прогресс.':'Пока никто не синхронизировал прогресс.')+' Он появится здесь после первого входа ученика.</div>';
+  else{var td=today(),act=D.filter(function(x){return x.days[td]!==undefined;}).length,sort=W.sort;
     var keyf={recent:function(x){return Math.max(x.t||0,x.lastOn||0);},streak:function(x){return streak(x);},days:function(x){return doneCount(x)*1e6+(x.xp||0);}}[sort];
-    var docs=W.docs.slice().sort(sort==='name'?function(a,b){return String(a.name||a.email||'').localeCompare(String(b.name||b.email||''));}:function(a,b){return keyf(b)-keyf(a);});
-    if(W.docs.length===1)W.open[W.docs[0]._id]=W.open[W.docs[0]._id]!==false;
-    h+='<div class="wsum"><b class="num">'+act+' / '+W.docs.length+'</b><span class="small">занимались сегодня</span></div>';
-    if(W.docs.length>1)h+='<div class="row small" style="gap:6px"><span class="muted">Сортировка:</span>'+[['recent','Активность'],['streak','Серия'],['days','Прогресс'],['name','Имя']].map(function(k){return '<button class="chipbtn'+(sort===k[0]?' on':'')+'" data-a="wsort" data-v="'+k[0]+'">'+k[1]+'</button>';}).join('')+'</div>';
+    var docs=D.slice().sort(sort==='name'?function(a,b){return String(a.name||a.email||'').localeCompare(String(b.name||b.email||''));}:function(a,b){return keyf(b)-keyf(a);});
+    if(D.length===1)W.open[D[0]._id]=W.open[D[0]._id]!==false;
+    h+='<div class="wsum"><b class="num">'+act+' / '+D.length+'</b><span class="small">занимались сегодня</span></div>';
+    if(D.length>1)h+='<div class="row small" style="gap:6px"><span class="muted">Сортировка:</span>'+[['recent','Активность'],['streak','Серия'],['days','Прогресс'],['name','Имя']].map(function(k){return '<button class="chipbtn'+(sort===k[0]?' on':'')+'" data-a="wsort" data-v="'+k[0]+'">'+k[1]+'</button>';}).join('')+'</div>';
     h+='<div class="wlist">'+docs.map(learnerLine).join('')+'</div>';}
-  return h+vAdd()+vUpload();}
+  return h+vAccess()+vAdd()+vUpload();}
+/* кто видит текущий курс */
+function vAccess(){if(OLDDB)return '';var c=CAT.filter(function(x){return x.id===CUR;})[0];if(!c)return '';
+  var who=(W.acc||[]).filter(function(a){return a.course_id===CUR;});
+  return '<details class="card"><summary>Доступ к курсу «'+esc(c.title||c.id)+'»</summary>'+
+    '<p class="small" style="margin:8px 0">'+(c.open?'Курс <b>открыт</b>: его видят все, кто вошёл.':'Курс <b>закрыт</b>: его видят только ученики из списка ниже.')+'</p>'+
+    '<div class="row"><button class="btn small ghost" data-a="copen">'+(c.open?'Закрыть курс':'Открыть всем вошедшим')+'</button></div>'+
+    (who.length?'<ul class="small" style="margin:12px 0 0;padding-left:18px">'+who.map(function(a){return '<li>'+esc(whoName(a.user_id))+' <button class="linkbtn" data-a="revoke" data-v="'+esc(a.user_id)+'">забрать доступ</button></li>';}).join('')+'</ul>':'<p class="small muted" style="margin:12px 0 0">Отдельный доступ ещё никому не выдан.</p>')+
+    '<p class="small muted" style="margin:10px 0 0">Выдать доступ: «Добавить ученика» ниже с этим курсом. Если аккаунт с таким email уже есть, ему просто откроется курс.</p></details>';}
 
 /* новый аккаунт ученика: Edge Function create-learner, секретный ключ остаётся в Supabase */
 var ADD={busy:false,res:null,err:''};
@@ -403,28 +496,45 @@ function vAdd(){var h='<details class="card"'+(ADD.res||ADD.err?' open':'')+'><s
   '<form id="af" style="display:flex;flex-direction:column;gap:8px"><input class="txt" style="max-width:none" id="ae" type="email" placeholder="Email ученика" autocomplete="off" required>'+
   '<input class="txt" style="max-width:none" id="an" placeholder="Имя (необязательно)" maxlength="30" autocomplete="off">'+
   '<input class="txt" style="max-width:none" id="ap" placeholder="Пароль (от 8 символов, необязательно)" autocomplete="new-password">'+
+  (!OLDDB&&CAT.length?'<label class="small" for="ac">Курс</label><select class="txt sel" style="max-width:none" id="ac">'+CAT.map(function(c){return '<option value="'+esc(c.id)+'"'+(c.id===CUR?' selected':'')+'>'+esc(c.title||c.id)+'</option>';}).join('')+'</select>':'')+
   '<button class="btn" type="submit"'+(ADD.busy?' disabled':'')+'>'+(ADD.busy?'Создаю…':'Создать аккаунт')+'</button></form>';
   if(ADD.err)h+='<p class="small" role="alert" style="color:var(--bad)">'+esc(ADD.err)+'</p>';
   if(ADD.res)h+='<p class="small"><b>Готово! Отправь эти данные:</b></p><textarea class="txt" id="amsg" style="max-width:none;min-height:120px" readonly>'+esc(addMsg(ADD.res))+'</textarea><div class="row" style="margin-top:8px"><button class="btn small" data-a="addcopy">Скопировать сообщение</button></div>';
   return h+'</details>';}
-function addMsg(r){return 'Пульс данных — ежедневный курс Medical Data Science\n'+location.origin+location.pathname+'\nEmail: '+r.email+'\nПароль: '+r.password+'\n\nПароль можно сменить в профиле: кнопка с аватаром вверху справа.';}
-function doAdd(){var em=$('#ae').value.trim(),nm=$('#an').value.trim(),pw=$('#ap').value.trim();if(!em)return;
+function addMsg(r){var cid=r.course_id||CUR,head=cid===CUR&&M.invite?M.invite:courseTitle(cid)+' — ежедневный курс',url=location.origin+location.pathname;
+  if(r.granted)return head+'\n'+url+'\nТебе открыт этот курс. Вход прежний: '+r.email+'.\n\nЕсли курсов несколько, переключиться можно в профиле: кнопка с аватаром вверху справа.';
+  return head+'\n'+url+'\nEmail: '+r.email+'\nПароль: '+r.password+'\n\nПароль можно сменить в профиле: кнопка с аватаром вверху справа.';}
+function doAdd(){var em=$('#ae').value.trim(),nm=$('#an').value.trim(),pw=$('#ap').value.trim(),ac=$('#ac'),cid=ac?ac.value:'';if(!em)return;
   if(!SB||!SB.functions)return;ADD={busy:true,res:null,err:''};render();
   SB.auth.getUser().then(function(u){if(u&&u.error){ADD={busy:false,res:null,err:''};sessionLost();return null;}
-  return SB.functions.invoke('create-learner',{body:{email:em,name:nm,password:pw}}).then(function(r){
+  var body={email:em,name:nm,password:pw};if(cid)body.course_id=cid;
+  return SB.functions.invoke('create-learner',{body:body}).then(function(r){
     var d=r.data,e=r.error;
     if(e){var ctx=e.context,p=ctx&&ctx.json?ctx.json():Promise.resolve(null);
-      return p.then(function(j){var code=j&&j.error;ADD={busy:false,res:null,err:code==='exists'?'Такой email уже зарегистрирован.':code==='password'?'Пароль должен быть не короче 8 символов.':code==='email'?'Проверь email.':/not found|404|FunctionsFetchError|Failed to send/i.test(String(e.message)+String(e.name))?'В Supabase не установлена функция create-learner. Инструкция в README.':'Не получилось: '+(code||e.message||'?')+(j&&j.detail?' ('+j.detail+')':'')};render();},function(){ADD={busy:false,res:null,err:'Не получилось: '+(e.message||'?')};render();});}
+      return p.then(function(j){var code=j&&j.error;ADD={busy:false,res:null,err:code==='exists'?'Такой email уже зарегистрирован.':code==='course'?'Такого курса нет в базе.':code==='password'?'Пароль должен быть не короче 8 символов.':code==='email'?'Проверь email.':/not found|404|FunctionsFetchError|Failed to send/i.test(String(e.message)+String(e.name))?'В Supabase не установлена функция create-learner. Инструкция в README.':'Не получилось: '+(code||e.message||'?')+(j&&j.detail?' ('+j.detail+')':'')};render();},function(){ADD={busy:false,res:null,err:'Не получилось: '+(e.message||'?')};render();});}
     ADD={busy:false,res:d,err:''};render();loadWatch();});},function(e){ADD={busy:false,res:null,err:'Не получилось: '+String(e&&e.message||e)};render();});}
 /* новая версия курса прямо из приложения (политика RLS «course: observers update») */
-function vUpload(){return '<details class="card"><summary>Загрузить курс</summary><p class="small muted">Выбери файл course.json. Курс заменится для всех сразу, прогресс учеников не трогается: он привязан к id уроков.</p><label class="btn small ghost" style="display:inline-flex;align-items:center;cursor:pointer">Выбрать файл<input type="file" id="upf" accept=".json,application/json" hidden></label></details>';}
-function doUpload(file){var rd=new FileReader();rd.onload=function(){var c=null;try{c=JSON.parse(rd.result);}catch(e){}
+function vUpload(){var file='<label class="btn small ghost" style="display:inline-flex;align-items:center;cursor:pointer;align-self:flex-start">Выбрать файл<input type="file" id="upf" accept=".json,application/json" hidden></label>';
+  if(OLDDB)return '<details class="card"><summary>Загрузить курс</summary><p class="small muted">Выбери файл course.json. Курс заменится для всех сразу, прогресс учеников не трогается: он привязан к id уроков. Чтобы держать несколько курсов, выполни в Supabase migrations/001_multi_course.sql.</p>'+file+'</details>';
+  var c=CAT.filter(function(x){return x.id===CUR;})[0]||{};
+  return '<details class="card"><summary>Загрузить курс</summary><p class="small muted">Тот же id — новая версия курса: прогресс учеников не трогается, он привязан к id уроков. Новый id — новый курс со своим прогрессом.</p>'+
+    '<div style="display:flex;flex-direction:column;gap:8px"><label class="small" for="ucid">id курса</label><input class="txt" style="max-width:none" id="ucid" list="ucat" value="'+esc(CUR)+'" autocomplete="off" spellcheck="false" placeholder="латиница, цифры, - и _"><datalist id="ucat">'+CAT.map(function(x){return '<option value="'+esc(x.id)+'">'+esc(x.title||'')+'</option>';}).join('')+'</datalist>'+
+    '<label class="small" for="uttl">Название</label><input class="txt" style="max-width:none" id="uttl" maxlength="60" value="'+esc(c.title||'')+'" placeholder="Как курс называется в списке">'+
+    '<label class="small"><input type="checkbox" id="uopen"'+(c.open?' checked':'')+'> Открыт всем вошедшим (иначе только тем, кому выдан доступ)</label>'+file+'</div></details>';}
+function upFill(){var id=($('#ucid')||{}).value,c=CAT.filter(function(x){return x.id===id;})[0];if(!c)return;var t=$('#uttl'),o=$('#uopen');if(t)t.value=c.title||'';if(o)o.checked=!!c.open;}
+function doUpload(file){var id=OLDDB?'main':String(($('#ucid')||{}).value||'').trim().toLowerCase(),ttl=String(($('#uttl')||{}).value||'').trim().slice(0,60),op=!!($('#uopen')||{}).checked;
+  if(!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(id))return toast('id курса: латиница, цифры, «-» и «_», до 40 символов.');
+  var rd=new FileReader();rd.onload=function(){var c=null;try{c=JSON.parse(rd.result);}catch(e){}
   var ok=c&&Array.isArray(c.weeks)&&c.weeks.length&&c.weeks.every(function(w){return w&&Array.isArray(w.days)&&w.days.every(function(d){return d&&d.id&&d.title&&Array.isArray(d.cards);});});
   if(!ok)return toast('Это не файл курса: нет недель или у урока нет id.');
-  SB.from('course_content').upsert({id:'main',data:c,updated_at:new Date().toISOString()}).then(function(r){
+  var row={id:id,data:c,updated_at:new Date().toISOString()};if(!OLDDB){row.title=ttl||(c.meta&&c.meta.brand)||id;row.open=op;}
+  SB.from('course_content').upsert(row).then(function(r){
     if(authErr(r))return sessionLost();
     if(r.error)return toast('Не получилось: '+r.error.message);
-    setCourse(c);try{localStorage.setItem(CKEY,JSON.stringify(c));}catch(e){}render();toast('Курс обновлён: '+TOTAL+' дней, шпаргалок '+notes().length+'.');},function(e){toast('Не получилось: '+String(e&&e.message||e));});};
+    var n=0;c.weeks.forEach(function(w){n+=w.days.length;});
+    try{localStorage.setItem(kC(id),JSON.stringify(c));}catch(e){}
+    if(id===CUR)setCourse(c);
+    loadCatalog().then(function(){render();toast((id===CUR?'Курс обновлён: ':'Курс «'+courseTitle(id)+'» загружен: ')+n+' '+plural(n,'урок','урока','уроков')+', шпаргалок '+(c.notes||[]).length+'.');});},function(e){toast('Не получилось: '+String(e&&e.message||e));});};
   rd.readAsText(file);}
 
 /* ---------- урок, практика, повторение ---------- */
@@ -453,10 +563,10 @@ function initTask(t){T={done:false,right:false,tutor:''};
 function codeBlock(c,run){return '<pre class="code">'+esc(c)+'</pre>'+(run?'<div><button class="btn small ghost" data-a="runhere"'+(pyLoading?' disabled':'')+'>'+(pyLoading?'Выполняю…':'Запустить код')+'</button></div>'+(R&&R.out?'<pre class="out" aria-live="polite">'+esc(R.out)+'</pre>':''):'');}
 function vRun(){var st=R.q[R.pos],pct=Math.round(R.pos/R.q.length*100);
   var h='<div class="runhead"><button class="x" data-a="quit" aria-label="Выйти из урока">✕ Выйти</button><div class="bar acc grow"><i style="width:'+pct+'%"></i></div></div><section class="lesson">';
-  if(st.k==='card'){var c=st.c,isPy=c.code&&R.L.tag==='py';
+  if(st.k==='card'){var c=st.c,isPy=sandOn()&&c.code&&R.L.tag==='py';
     h+='<div class="eyebrow">'+esc(R.L.title)+'</div><h1>'+c.h+'</h1><p>'+c.t+'</p>'+(c.code?codeBlock(c.code,isPy):'')+'<div class="foot"><button class="btn" data-a="next">Дальше</button></div>';}
   else if(st.k==='mission'){var m=st.m;
-    h+='<div class="eyebrow">Практика недели</div><h1>'+m.h+'</h1><p>Настоящий код вне уроков. Это 15–20 минут, можно сделать сегодня или в выходной.</p><ol class="steps">'+m.steps.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol><div><a href="'+m.url+'" target="_blank" rel="noopener">Открыть Google Colab</a></div><div class="foot"><button class="btn" data-a="mission" data-v="1">Сделала, +30 XP</button><button class="btn ghost" data-a="mission" data-v="0">Сделаю позже</button></div>';}
+    h+='<div class="eyebrow">Практика недели</div><h1>'+m.h+'</h1><p>Настоящий код вне уроков. Это 15–20 минут, можно сделать сегодня или в выходной.</p><ol class="steps">'+m.steps.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol>'+(m.url?'<div><a href="'+esc(m.url)+'" target="_blank" rel="noopener">'+esc(m.label||M.missionLabel)+'</a></div>':'')+'<div class="foot"><button class="btn" data-a="mission" data-v="1">Сделала, +30 XP</button><button class="btn ghost" data-a="mission" data-v="0">Сделаю позже</button></div>';}
   else{var t=st.t;if(!T)initTask(t);
     h+='<div class="eyebrow">'+(R.kind==='lesson'?'':esc(TAGS[t._tag]||'')+' · ')+(st.first?'Задание':'Ещё раз')+'</div><h2>'+t.q+'</h2>';
     if(t.t==='mc'){if(t.code)h+=codeBlock(t.code);
@@ -507,12 +617,12 @@ var tutorOn=false, sampleFn=null;
 function initTutor(){if(!window.claude||!window.claude.use)return;window.claude.use('sample').then(function(s){if(s){sampleFn=s;tutorOn=true;}}).catch(function(){});}
 function askTutor(){var st=R&&R.q[R.pos];if(!st||!sampleFn||!T)return;var t=st.t,mine=T;mine.tutor='Думаю…';render();
   var body='Вопрос: '+t.q.replace(/<[^>]+>/g,'')+(t.code?'\nКод:\n'+t.code:'')+(t.o?'\nПравильный ответ: '+t.o[t.a].replace(/<[^>]+>/g,''):'')+(t.lines?'\nПравильный порядок:\n'+t.lines.join('\n'):'')+(t.a&&t.t==='fill'?'\nПравильный ответ: '+t.a[0]:'')+'\nКраткое пояснение из урока: '+t.e.replace(/<[^>]+>/g,'');
-  sampleFn('Ты терпеливый наставник. Ученица — медицинский техник из немецкой клиники, начинает учить medical data science с нуля. Объясни по-русски, просто, в 3–5 предложениях, почему правильный ответ именно такой. Приведи один пример из больничной практики. Без приветствий, без разметки.\n\n'+body,{modelTier:'quick',onText:function(o){if(T===mine){mine.tutor=o.text;var el=$('.tutor');if(el)el.textContent=o.text;}}})
+  sampleFn(M.tutor+'\n\n'+body,{modelTier:'quick',onText:function(o){if(T===mine){mine.tutor=o.text;var el=$('.tutor');if(el)el.textContent=o.text;}}})
   .then(function(r){if(T===mine){mine.tutor=r.text||mine.tutor;render();}},function(e){if(e&&e.code==='not_granted')tutorOn=false;if(T===mine){mine.tutor='Наставник сейчас недоступен. Попробуй позже.';render();}});}
 
 /* ---------- обучение при первом запуске ---------- */
 var TOURQ=false, TOUR=-1;
-var TOURS=[
+var TOURS_L=[
   [null,'👋','Пульс данных обновился','Курс тот же, весь прогресс на месте. Покажу, что нового, — это 30 секунд.'],
   ['.todayc','📅','Сегодня — один шаг','На главной только сегодняшний урок. Нажала, прошла — пульс записан. Список всех недель ниже.'],
   ['#tabs [data-v="practice"]','🏋️','Практика','Свободная тренировка по темам пройденных уроков. Сначала задания, где были ошибки.'],
@@ -521,12 +631,17 @@ var TOURS=[
   ['#tabs [data-v="sandbox"]','🐍','Код','Python прямо в браузере. Примеры из словаря и шпаргалок открываются здесь одной кнопкой.'],
   ['#app .hdr .mebtn','👤','Профиль','Нажми на аватар: прогресс, награды, пульс за 14 дней, тема, аватар, напоминания и смена пароля.'],
   [null,'💡','Главный совет','15 минут каждый день лучше, чем два часа раз в неделю. Включи напоминание — и приложение само позовёт.']];
-function vTour(){if(TOUR<0)return '';var x=TOURS[TOUR],last=TOUR===TOURS.length-1,spot=x[0]&&document.querySelector(x[0]);
+function tours(){if(M.tour==='legacy')return TOURS_L;var t=[[null,'👋',M.brand,'Покажу, как здесь всё устроено, — это 30 секунд.'],TOURS_L[1],TOURS_L[2]];
+  if(notes().length)t.push(['#tabs [data-v="notes"]','📒','Шпаргалки','Короткие справки по темам курса: открывай, когда нужно быстро вспомнить.']);
+  t.push(['#tabs [data-v="glossary"]','📖','Словарь','Термины и карточки понятий открываются по мере прохождения уроков.']);
+  if(sandOn())t.push(TOURS_L[5]);
+  return t.concat([TOURS_L[6],TOURS_L[7]]);}
+function vTour(){if(TOUR<0)return '';var x=tours()[TOUR],last=TOUR===tours().length-1,spot=x[0]&&document.querySelector(x[0]);
   return '<div class="tour'+(spot?' spot':'')+'" role="dialog" aria-modal="true" aria-labelledby="tourh">'+(spot?'<div class="hole"></div>':'')+'<div class="tourbox">'+(spot?'<span class="tarr"></span>':'')+'<div class="tourico" aria-hidden="true">'+x[1]+'</div><h2 id="tourh">'+esc(x[2])+'</h2><p>'+esc(x[3])+'</p>'+
-    '<div class="tourdots">'+TOURS.map(function(_,i){return '<i class="'+(i===TOUR?'on':'')+'"></i>';}).join('')+'</div>'+
+    '<div class="tourdots">'+tours().map(function(_,i){return '<i class="'+(i===TOUR?'on':'')+'"></i>';}).join('')+'</div>'+
     (TOURQ?'<div class="tourq"><p>Точно пропустить? Это всего 30 секунд.</p><div class="foot"><button class="btn" data-a="tourcont">Продолжить</button><button class="linkbtn" data-a="tourskip">Всё равно пропустить</button></div></div>':
     '<div class="foot">'+(last?'':'<button class="linkbtn" data-a="tourask">Пропустить</button>')+'<button class="btn" data-a="tournext">'+(last?'Начать':'Дальше')+'</button></div>')+'</div></div>';}
-function placeTour(){var box=$('.tour.spot');if(!box)return;var el=document.querySelector(TOURS[TOUR][0]);if(!el)return;
+function placeTour(){var box=$('.tour.spot');if(!box)return;var el=document.querySelector(tours()[TOUR][0]);if(!el)return;
   var r=el.getBoundingClientRect(),vh=window.innerHeight,vw=document.documentElement.clientWidth||window.innerWidth,pad=6,hole=box.querySelector('.hole'),tip=box.querySelector('.tourbox'),arr=box.querySelector('.tarr');
   hole.style.left=(r.left-pad)+'px';hole.style.top=(r.top-pad)+'px';hole.style.width=(r.width+pad*2)+'px';hole.style.height=(r.height+pad*2)+'px';
   var w=Math.min(360,vw-24);tip.style.width=w+'px';var cx=r.left+r.width/2,left=Math.max(12,Math.min(vw-w-12,cx-w/2));tip.style.left=left+'px';
@@ -539,13 +654,13 @@ window.addEventListener('resize',placeTour);window.addEventListener('scroll',pla
 function maybeTour(){if(!S.tour&&TOUR<0&&!OWNER&&ALL.length&&VIEWS.indexOf(view)>=0&&view!=='watch'){if(view!=='path'){view='path';try{history.replaceState(null,'','#path');}catch(e){}}TOUR=0;}}
 
 /* ---------- отрисовка и события ---------- */
-function render(){rebuild();maybeTour();var a=$('#app'),tabs=$('#tabs'),inRun=view==='run'||view==='result'||view==='login'||view==='boot'||view==='nocourse';tabs.hidden=inRun;tabs.style.display=inRun?'none':'';
+function render(){rebuild();if(view==='sandbox'&&!sandOn())view='path';maybeTour();var a=$('#app'),tabs=$('#tabs'),inRun=view==='run'||view==='result'||view==='login'||view==='boot'||view==='nocourse';tabs.hidden=inRun;tabs.style.display=inRun?'none':'';
   a.innerHTML=view==='nocourse'?vNoCourse():view==='login'?vLogin():view==='boot'?vBoot():view==='run'?vRun():view==='result'?vResult():view==='practice'?vPractice():view==='notes'?vNotes():view==='note'?vNote():view==='glossary'?vGloss():view==='sandbox'?vSand():view==='progress'?vProg():view==='watch'?vWatch():vPath();
-  var wt=$('#watchtab');if(wt)wt.hidden=!OWNER;
+  var wt=$('#watchtab');if(wt)wt.hidden=!OWNER;var sbt=$('#sandtab');if(sbt)sbt.hidden=!sandOn();
   if(!inRun)tabs.querySelectorAll('button').forEach(function(b){if(b.dataset.v===view||(view==='note'&&b.dataset.v==='notes'))b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   if(view==='glossary'&&GQ)gFilter();
   var old=$('.tour');if(old)old.remove();
-  if(TOUR>=0){var tg=TOURS[TOUR][0]&&document.querySelector(TOURS[TOUR][0]);if(tg&&tg.closest('#app'))window.scrollBy(0,tg.getBoundingClientRect().top-80);document.body.insertAdjacentHTML('beforeend',vTour());placeTour();}
+  if(TOUR>=0){var tg=tours()[TOUR][0]&&document.querySelector(tours()[TOUR][0]);if(tg&&tg.closest('#app'))window.scrollBy(0,tg.getBoundingClientRect().top-80);document.body.insertAdjacentHTML('beforeend',vTour());placeTour();}
   var f=$('#fillin');if(f&&!f.disabled)f.focus({preventScroll:true});}
 var resetArmed=false, impArmed=false;
 var A={
@@ -563,10 +678,15 @@ var A={
     if(j===T.l){T.ok[j]=1;T.l=-1;T.bad=null;if(Object.keys(T.ok).length===t.pairs.length){var clean=T.err===0;T.done=true;T.right=true;S.seen[t._k]=today();if(clean&&st.first)R.ok++;else R.fixed++;if(!clean)S.missed[t._k]=(S.missed[t._k]||0)+1;else if(R.kind!=='lesson')delete S.missed[t._k];}}
     else{T.err++;T.bad=j;}render();},
   mission:function(el){R.mission=el.dataset.v==='1';next();},
-  logout:function(){if(!SB)return;try{history.replaceState(null,'','#path');}catch(e){}try{localStorage.removeItem(CKEY);}catch(e){}setCourse({weeks:[],roadmap:[]});presStop();SB.auth.signOut({scope:'local'}).then(function(){},function(){});onSession(null);},
+  logout:function(){if(!SB)return;try{history.replaceState(null,'','#path');}catch(e){}try{Object.keys(localStorage).forEach(function(k){if(k.indexOf('puls-course-v1')===0)localStorage.removeItem(k);});localStorage.removeItem(CATKEY);}catch(e){}CAT=[];setCourse({weeks:[],roadmap:[]});presStop();SB.auth.signOut({scope:'local'}).then(function(){},function(){});onSession(null);},
   retry:function(){view='boot';render();SB.auth.getSession().then(function(r){ME=null;onSession(r&&r.data&&r.data.session);});},
-  track:function(el){var v=el.dataset.v;if(v!=='ds'&&v!=='dh')return;S.track=v;save();rebuild();view='path';try{location.hash='path';}catch(e){}render();window.scrollTo(0,0);toast('Трек: '+trackName(v)+'. Следующий урок уже ждёт.');},
+  track:function(el){var v=el.dataset.v;if(trackList().indexOf(v)<0)return;S.track=v;save();rebuild();view='path';try{location.hash='path';}catch(e){}render();window.scrollTo(0,0);toast('Трек: '+trackName(v)+'. Следующий урок уже ждёт.');},
   runhere:runHere, run:runPy, tutor:askTutor,
+  course:function(el){switchCourse(el.dataset.v);},
+  courses:function(){view='progress';try{location.hash='progress';}catch(e){}render();var c=document.getElementById('courses');if(c)c.scrollIntoView({block:'center'});},
+  copen:function(){var c=CAT.filter(function(x){return x.id===CUR;})[0];if(!c||!SB)return;var v=!c.open;
+    SB.from('course_content').update({open:v}).eq('id',CUR).then(function(r){if(authErr(r))return sessionLost();if(r.error)return toast('Не получилось: '+r.error.message);c.open=v;loadCatalog().then(function(){render();});toast(v?'Курс открыт всем вошедшим.':'Курс закрыт: его видят только ученики из списка.');});},
+  revoke:function(el){var u=el.dataset.v;if(!SB)return;SB.from('course_access').delete().eq('user_id',u).eq('course_id',CUR).then(function(r){if(authErr(r))return sessionLost();if(r.error)return toast('Не получилось: '+r.error.message);toast('Доступ закрыт.');loadWatch();});},
   tosand:function(el){sandSrc=el.dataset.src;sandOut='';view='sandbox';try{location.hash='sandbox';}catch(e){}render();window.scrollTo(0,0);},
   note:function(el){openNote(el.dataset.v);},
   nback:function(){try{if(history.state&&history.state.pulsNote){history.back();return;}}catch(e){}closeNote();},
@@ -575,7 +695,7 @@ var A={
   theme:function(el){S.theme=el.dataset.v;applyTheme(S.theme);save();render();},
   avatar:function(el){S.avatar=el.dataset.v;save();render();},
   tour:function(){TOURQ=false;TOUR=0;view='path';try{location.hash='path';}catch(e){}render();},
-  tournext:function(){TOURQ=false;if(TOUR<TOURS.length-1){TOUR++;render();}else{TOUR=-1;S.tour=1;S.tourDone=1;save();render();toast('Готово! Хорошей учёбы.');}},
+  tournext:function(){TOURQ=false;if(TOUR<tours().length-1){TOUR++;render();}else{TOUR=-1;S.tour=1;S.tourDone=1;save();render();toast('Готово! Хорошей учёбы.');}},
   tourask:function(){TOURQ=true;render();},
   tourcont:function(){TOURQ=false;render();},
   tourskip:function(){TOURQ=false;TOUR=-1;S.tour=1;save();render();},
@@ -600,7 +720,7 @@ document.addEventListener('click',function(e){var el=e.target.closest('[data-a]'
 document.addEventListener('change',function(e){if(e.target.id==='upf'&&e.target.files&&e.target.files[0]){doUpload(e.target.files[0]);e.target.value='';return;}if(e.target.dataset&&e.target.dataset.ch==='remh')pushHour(+e.target.value);});
 document.addEventListener('submit',function(e){if(e.target.id==='lf'){e.preventDefault();doLogin();}if(e.target.id==='af'){e.preventDefault();doAdd();}if(e.target.id==='pwf'){e.preventDefault();doPw();}});
 document.addEventListener('keydown',function(e){if(e.key==='Enter'&&e.target.id==='fillin'){e.preventDefault();check();}});
-document.addEventListener('input',function(e){var id=e.target.id;if(id==='src')sandSrc=e.target.value;else if(id==='fillin'&&T)T.val=e.target.value;else if(id==='nq'){NQ=e.target.value.trim();nFilter();}else if(id==='gq'){GQ=e.target.value.trim();gFilter();}});
+document.addEventListener('input',function(e){var id=e.target.id;if(id==='ucid')upFill();else if(id==='src')sandSrc=e.target.value;else if(id==='fillin'&&T)T.val=e.target.value;else if(id==='nq'){NQ=e.target.value.trim();nFilter();}else if(id==='gq'){GQ=e.target.value.trim();gFilter();}});
 /* открытая карточка кода: учитываем для наблюдателя */
 document.addEventListener('toggle',function(e){var d=e.target;if(d&&d.classList&&d.classList.contains('cx')&&d.open&&d.dataset.id){S.cx[d.dataset.id]=(S.cx[d.dataset.id]||0)+1;save();}},true);
 
