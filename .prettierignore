@@ -1,0 +1,7 @@
+vendor/
+node_modules/
+img/
+docs/
+*.md
+*.sql
+index.html

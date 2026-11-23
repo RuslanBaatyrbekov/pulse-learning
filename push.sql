@@ -1,7 +1,7 @@
--- Пульс данных: ежедневные напоминания (Web Push). Выполни один раз в Supabase → SQL Editor.
--- Перед запуском замени PROJECT_REF на id проекта и CRON_SECRET_HERE на секрет из Edge Functions → Secrets.
+-- Pulse: daily reminders (Web Push). Run once in Supabase → SQL Editor.
+-- Before running, replace PROJECT_REF with the project id and CRON_SECRET_HERE with the secret from Edge Functions → Secrets.
 
--- 1) подписки устройств на уведомления
+-- 1) device subscriptions for notifications
 create table if not exists public.push_subs (
   endpoint   text primary key,
   user_id    uuid not null references auth.users(id) on delete cascade,
@@ -22,11 +22,11 @@ drop policy if exists "push: own update" on public.push_subs;
 drop policy if exists "push: own delete" on public.push_subs;
 create policy "push: own select" on public.push_subs for select to authenticated using (user_id = (select auth.uid()));
 create policy "push: own insert" on public.push_subs for insert to authenticated with check (user_id = (select auth.uid()));
--- телефон может сменить аккаунт: новый владелец забирает тот же endpoint себе
+-- a phone can switch accounts: the new owner takes over the same endpoint
 create policy "push: own update" on public.push_subs for update to authenticated using (true) with check (user_id = (select auth.uid()));
 create policy "push: own delete" on public.push_subs for delete to authenticated using (user_id = (select auth.uid()));
 
--- 2) каждые 15 минут вызываем функцию send-reminders
+-- 2) call the send-reminders function every 15 minutes
 create extension if not exists pg_cron;
 create extension if not exists pg_net;
 select cron.unschedule('puls-reminders') where exists (select 1 from cron.job where jobname = 'puls-reminders');

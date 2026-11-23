@@ -54,7 +54,7 @@ I built it to support a career change from medical technician to medical data sc
 ```mermaid
 flowchart LR
     subgraph Client["Static site · GitHub Pages"]
-        UI[app.js<br/>lesson engine, views]
+        UI[js/*.js + lib/core.js<br/>lesson engine, views]
         LS[(localStorage<br/>progress + course cache)]
         PY[Pyodide<br/>Python sandbox]
     end
@@ -89,18 +89,45 @@ Design notes:
   CI fails if a table is created without RLS.
 - **Only the public key on the client.** `config.js` holds the project URL and the anon / publishable key, which grants nothing without a session. CI blocks commits containing service-role or secret keys.
 - **Content Security Policy.** Scripts load only from the site and the Pyodide CDN. The Supabase client is vendored (`vendor/supabase.js`, 2.118.0) instead of loaded from a CDN.
-- **No build step.** A handful of static files and a vendored library, readable top to bottom, deployable anywhere static.
+- **No build step.** Plain static files and a vendored library, deployable anywhere static. The app is split by area into classic scripts in `js/` that share one global scope (load order in `index.html`); pure logic without DOM or network lives in `lib/core.js` and is unit-tested.
 - **State migrations without loss.** Every stored progress document goes through one normalizer: new fields are added, nothing is renamed or dropped, lesson ids are stable across course versions.
+
+## Project structure
+
+```
+index.html            page shell, Content Security Policy, script order
+css/app.css           styles and colour themes
+lib/core.js           pure logic: state normalization and merge, streak, levels, course meta
+js/                   the app, one file per area (sync, catalog, screens, runner, observer, …)
+config.js             Supabase URL, publishable key, optional VAPID key
+sw.js                 service worker: installable app and reminders
+schema.sql            database for a new installation
+migrations/           upgrades for existing databases
+push.sql              reminder subscriptions and the cron job
+supabase/functions/   create-learner, send-reminders (Edge Functions)
+examples/             example course (JSON and SQL)
+tests/                unit tests (node --test)
+```
+
+## Development
+
+```
+npm install
+npm run check      # ESLint, Prettier check, unit tests (the same as CI)
+npm run format     # format with Prettier
+```
+
+Code, comments, commit messages and docs are in English; the app's interface texts are in Russian.
 
 ## Tech stack
 
-JavaScript (ES5, no framework) · Supabase Auth · PostgreSQL with RLS · Supabase Realtime · Pyodide · GitHub Pages · GitHub Actions
+JavaScript (no framework, no build) · ESLint · Prettier · node:test · Supabase Auth · PostgreSQL with RLS · Supabase Realtime · Pyodide · GitHub Pages · GitHub Actions
 
 ## Quick start
 
 1. Create a Supabase project (EU region recommended) and run `schema.sql` in the SQL Editor.
    Then run `migrations/002_progress_safety.sql` (progress guard and history).
-   Upgrading a project created before multi-course support: run `migrations/001_multi_course.sql` once instead. Existing progress stays where it is (it becomes course `main`), and apps still running the old `app.js` keep syncing.
+   Upgrading a project created before multi-course support: run `migrations/001_multi_course.sql` and then `002` instead. Existing progress stays where it is (it becomes course `main`), and apps still running an older version keep syncing.
 2. Load the example course: run `examples/course.example.sql`.
 3. Turn off sign-ups in **Authentication → Providers → Email**, create users in **Authentication → Users**.
 4. Make yourself an observer:
