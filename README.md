@@ -143,7 +143,7 @@ A course without `meta` is shown with the original "Пульс данных" bra
 }
 ```
 
-`sandbox: "python"` turns on the in-browser Python tab; any other value hides it. A milestone is unlocked by a lesson id or by `@mission`, `@track`, `@final`. Optional texts: `trackPrompt`, `roadmapTitle`, `notesSub`, `notesHint`, `termsHint`, `codeHint`, `missionLabel` (missions can also set their own `label`).
+`sandbox: "python"` turns on the in-browser Python tab; any other value hides it. A milestone is unlocked by a lesson id or by `@mission`, `@track`, `@final`. Optional texts: `trackPrompt`, `roadmapTitle`, `notesSub`, `notesHint`, `termsHint`, `codeHint`, `termsTitle`, `termsSub`, `missionLabel` (missions can also set their own `label`), `missionDone`.
 
 ## License
 

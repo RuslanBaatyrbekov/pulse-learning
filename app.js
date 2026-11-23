@@ -33,7 +33,8 @@ var LEGACY={brand:'Пульс данных',avatar:'🩺',sandbox:'python',
   missionLabel:'Открыть Google Colab',
   milestones:[['Первая смена','Контрольная недели 1','b1'],['Практик','Сделана практика в Colab','@mission'],['Табличный ум','Пройдена неделя 3','b3'],['Первый месяц','Все 28 дней','b4'],['Проект 1','Разведочный анализ','b9'],['Проект 2','Модель прогноза','b15'],['Свой путь','Выбран трек','@track'],['Финал','Курс пройден целиком','w36_b']],
   tutor:'Ты терпеливый наставник. Ученица — медицинский техник из немецкой клиники, начинает учить medical data science с нуля. Объясни по-русски, просто, в 3–5 предложениях, почему правильный ответ именно такой. Приведи один пример из больничной практики. Без приветствий, без разметки.',
-  invite:'Пульс данных — ежедневный курс Medical Data Science', tour:'legacy'};
+  invite:'Пульс данных — ежедневный курс Medical Data Science', tour:'legacy',
+  termsTitle:'Термины на трёх языках', termsSub:'Немецкий термин, английский и пояснение — так они стоят в вакансиях. Новые открываются после каждого урока.', missionDone:'Сделала, +30 XP'};
 var NEUTRAL={brand:'Pulse',avatar:'📘',sandbox:null,
   levels:[[0,'Новичок'],[120,'Ученик'],[300,'Практик'],[550,'Уверенный'],[900,'Продвинутый'],[1400,'Знаток'],[2000,'Эксперт'],[3000,'Мастер'],[4500,'Наставник'],[6500,'Легенда']],
   tags:{boss:'Контрольная'}, tagIcons:{boss:'★'}, noteCats:[], tracks:{},
@@ -44,7 +45,8 @@ var NEUTRAL={brand:'Pulse',avatar:'📘',sandbox:null,
   missionLabel:'Открыть задание',
   milestones:[['Практик','Сделано практическое задание','@mission'],['Свой путь','Выбран трек','@track'],['Финал','Курс пройден целиком','@final']],
   tutor:'Ты терпеливый наставник. Объясни по-русски, просто, в 3–5 предложениях, почему правильный ответ именно такой. Приведи один короткий практический пример. Без приветствий, без разметки.',
-  invite:'', tour:'neutral'};
+  invite:'', tour:'neutral',
+  termsTitle:'Термины', termsSub:'Термин, его второе название и пояснение. Новые открываются после каждого урока.', missionDone:'Готово, +30 XP'};
 var M=LEGACY, LEVELS=M.levels, TAGS=M.tags, TAG_ICO=M.tagIcons, NCATS=M.noteCats;
 function applyMeta(c){var m=c&&c.meta&&typeof c.meta==='object'?c.meta:null,base=m?NEUTRAL:LEGACY;M=Object.assign({},base,m||{});
   M.tags=Object.assign({},base.tags,m&&m.tags||{});M.tagIcons=Object.assign({},base.tagIcons,m&&m.tagIcons||{});
@@ -305,7 +307,7 @@ function concepts(){return (C.concepts||[]).map(function(k){var L=LBY[k.after];r
 function strip(x){return String(x).replace(/<[^>]+>/g,'');}
 function gHay(x){return x.k?(x.k.h+' '+x.k.en+' '+x.k.de+' '+x.k.s+' '+strip(x.k.t)+' '+x.k.code).toLowerCase():(x.t.join(' ')).toLowerCase();}
 function vGloss(){var ts=allTerms(),op=ts.filter(function(x){return x.open;}),ks=concepts(),kop=ks.filter(function(x){return x.open;});
-  var h=header()+'<section><div class="eyebrow">Словарь</div><h1>'+(GT==='terms'?'Термины на трёх языках':'Программирование')+'</h1><p class="small muted" style="margin:6px 0 0;max-width:60ch">'+(GT==='terms'?'Немецкий термин, английский и пояснение — так они стоят в вакансиях. Новые открываются после каждого урока.':'Главные понятия кода: что это, пример, что он выведет и типичная ошибка. Нажми на карточку, чтобы раскрыть.')+'</p></section>';
+  var h=header()+'<section><div class="eyebrow">Словарь</div><h1>'+(GT==='terms'?esc(M.termsTitle):'Программирование')+'</h1><p class="small muted" style="margin:6px 0 0;max-width:60ch">'+(GT==='terms'?esc(M.termsSub):'Главные понятия кода: что это, пример, что он выведет и типичная ошибка. Нажми на карточку, чтобы раскрыть.')+'</p></section>';
   h+='<div class="seg" role="tablist"><button role="tab" data-a="gtab" data-v="terms" aria-selected="'+(GT==='terms')+'">Термины <span class="num muted">'+op.length+'</span></button><button role="tab" data-a="gtab" data-v="code" aria-selected="'+(GT==='code')+'">Программирование <span class="num muted">'+kop.length+'</span></button></div>';
   h+='<input class="txt nsearch" id="gq" type="search" autocomplete="off" placeholder="'+esc(GT==='terms'?M.termsHint:M.codeHint)+'" value="'+esc(GQ)+'">';
   if(GT==='terms'){
@@ -566,7 +568,7 @@ function vRun(){var st=R.q[R.pos],pct=Math.round(R.pos/R.q.length*100);
   if(st.k==='card'){var c=st.c,isPy=sandOn()&&c.code&&R.L.tag==='py';
     h+='<div class="eyebrow">'+esc(R.L.title)+'</div><h1>'+c.h+'</h1><p>'+c.t+'</p>'+(c.code?codeBlock(c.code,isPy):'')+'<div class="foot"><button class="btn" data-a="next">Дальше</button></div>';}
   else if(st.k==='mission'){var m=st.m;
-    h+='<div class="eyebrow">Практика недели</div><h1>'+m.h+'</h1><p>Настоящий код вне уроков. Это 15–20 минут, можно сделать сегодня или в выходной.</p><ol class="steps">'+m.steps.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol>'+(m.url?'<div><a href="'+esc(m.url)+'" target="_blank" rel="noopener">'+esc(m.label||M.missionLabel)+'</a></div>':'')+'<div class="foot"><button class="btn" data-a="mission" data-v="1">Сделала, +30 XP</button><button class="btn ghost" data-a="mission" data-v="0">Сделаю позже</button></div>';}
+    h+='<div class="eyebrow">Практика недели</div><h1>'+m.h+'</h1><p>Настоящий код вне уроков. Это 15–20 минут, можно сделать сегодня или в выходной.</p><ol class="steps">'+m.steps.map(function(s){return '<li>'+esc(s)+'</li>';}).join('')+'</ol>'+(m.url?'<div><a href="'+esc(m.url)+'" target="_blank" rel="noopener">'+esc(m.label||M.missionLabel)+'</a></div>':'')+'<div class="foot"><button class="btn" data-a="mission" data-v="1">'+esc(M.missionDone)+'</button><button class="btn ghost" data-a="mission" data-v="0">Сделаю позже</button></div>';}
   else{var t=st.t;if(!T)initTask(t);
     h+='<div class="eyebrow">'+(R.kind==='lesson'?'':esc(TAGS[t._tag]||'')+' · ')+(st.first?'Задание':'Ещё раз')+'</div><h2>'+t.q+'</h2>';
     if(t.t==='mc'){if(t.code)h+=codeBlock(t.code);
