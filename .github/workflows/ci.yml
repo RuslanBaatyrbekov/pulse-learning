@@ -13,29 +13,25 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
+
+      - run: npm ci
+
+      - name: Lint and formatting
+        run: npm run lint && npm run format:check
 
       - name: JavaScript syntax
-        run: node --check app.js && node --check config.js && node --check sw.js
+        run: for f in js/*.js lib/*.js config.js sw.js; do node --check "$f"; done
 
-      - name: Example course is valid JSON with the expected shape
-        run: |
-          node -e "
-          const c = require('./examples/course.example.json');
-          if (!Array.isArray(c.weeks) || !c.weeks.length) throw new Error('weeks missing');
-          for (const w of c.weeks) for (const d of w.days) {
-            if (!d.id || !d.title || !Array.isArray(d.cards)) throw new Error('bad lesson ' + d.id);
-            if (c.meta && typeof c.meta !== 'object') throw new Error('meta must be an object');
-            for (const t of d.tasks || []) if (!['mc','fill','order','match'].includes(t.t)) throw new Error('bad task in ' + d.id);
-          }
-          console.log('ok');"
+      - name: Unit tests and example course
+        run: npm test
 
       - name: Manifest is valid JSON
         run: node -e "JSON.parse(require('fs').readFileSync('manifest.webmanifest','utf8')); console.log('ok')"
 
       - name: No secret keys in the repository
         run: |
-          if grep -rIlE "service_role|sb_secret_" --exclude-dir=.git --exclude-dir=vendor --exclude=ci.yml --exclude=README.md --exclude=config.js .; then
+          if grep -rIlE "service_role|sb_secret_" --exclude-dir=.git --exclude-dir=vendor --exclude-dir=node_modules --exclude=ci.yml --exclude=README.md --exclude=config.js .; then
             echo "Possible secret key found" && exit 1
           fi
 

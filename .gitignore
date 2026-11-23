@@ -5,3 +5,4 @@
 # real course content stays out of the repo
 content.sql
 private/
+node_modules/

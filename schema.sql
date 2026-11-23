@@ -1,8 +1,9 @@
--- Pulse: база прогресса и курсов (новая установка).
--- База, созданная старой версией этого файла: выполни migrations/001_multi_course.sql.
--- Выполни целиком в Supabase: SQL Editor → New query → Run.
+-- Pulse: progress and courses database (new installation).
+-- A database created by an older version of this file: run migrations/001_multi_course.sql instead.
+-- After this file, also run migrations/002_progress_safety.sql.
+-- Run the whole file in Supabase: SQL Editor → New query → Run.
 
--- 1. Таблица прогресса: одна строка на ученика и курс.
+-- 1. Progress table: one row per learner and course.
 create table if not exists public.progress (
   user_id    uuid not null references auth.users (id) on delete cascade,
   course_id  text not null default 'main',
@@ -12,12 +13,12 @@ create table if not exists public.progress (
   constraint progress_state_size check (pg_column_size(state) < 100000)
 );
 
--- 2. Наблюдатели: кто может читать прогресс всех учеников.
+-- 2. Observers: who can read the progress of all learners.
 create table if not exists public.observers (
   user_id uuid primary key references auth.users (id) on delete cascade
 );
 
--- 3. Доступ только по правилам (Row Level Security).
+-- 3. Access only through rules (Row Level Security).
 alter table public.progress  enable row level security;
 alter table public.observers enable row level security;
 
@@ -26,7 +27,7 @@ revoke all on public.observers from anon;
 grant select, insert, update on public.progress  to authenticated;
 grant select                 on public.observers to authenticated;
 
--- Ученик видит и меняет только свою строку.
+-- A learner sees and changes only their own rows.
 create policy "progress: read own" on public.progress
   for select to authenticated using (user_id = (select auth.uid()));
 create policy "progress: insert own" on public.progress
@@ -35,19 +36,19 @@ create policy "progress: update own" on public.progress
   for update to authenticated
   using (user_id = (select auth.uid())) with check (user_id = (select auth.uid()));
 
--- Наблюдатель читает все строки, но ничего не меняет.
+-- An observer reads all rows but changes nothing.
 create policy "progress: observer reads all" on public.progress
   for select to authenticated
   using (exists (select 1 from public.observers o where o.user_id = (select auth.uid())));
 
--- Каждый может узнать только, наблюдатель ли он сам.
+-- Everyone can only find out whether they themselves are an observer.
 create policy "observers: read self" on public.observers
   for select to authenticated using (user_id = (select auth.uid()));
 
--- Удалять строки нельзя никому из приложения: политики на delete нет.
+-- Nobody can delete rows from the app: there is no delete policy.
 
--- 6. Курсы: уроки, задания, ответы. Курсов может быть несколько.
---    open = true: курс видят все вошедшие; иначе только те, кому его открыли (course_access).
+-- 6. Courses: lessons, tasks, answers. There can be several courses.
+--    open = true: every signed-in user sees the course; otherwise only those it was granted to (course_access).
 create table if not exists public.course_content (
   id         text primary key,
   title      text,
@@ -59,7 +60,7 @@ alter table public.course_content enable row level security;
 revoke all on public.course_content from anon;
 grant select on public.course_content to authenticated;
 
--- Доступ к закрытым курсам. Выдаёт и забирает только наблюдатель.
+-- Access to closed courses. Only an observer grants and revokes it.
 create table if not exists public.course_access (
   user_id   uuid not null references auth.users (id) on delete cascade,
   course_id text not null references public.course_content (id) on delete cascade,
@@ -80,17 +81,17 @@ create policy "course: read open, granted or observer" on public.course_content 
   using (open
     or exists (select 1 from public.course_access a where a.course_id = course_content.id and a.user_id = (select auth.uid()))
     or exists (select 1 from public.observers o where o.user_id = (select auth.uid())));
--- Записывать уроки может только наблюдатель: вкладка «Наблюдение» → «Загрузить курс» (см. раздел 7).
+-- Only an observer writes courses: Observer tab → Upload course (see section 7).
 
--- 4. Живое обновление вкладки «Наблюдение».
+-- 4. Live updates in the Observer tab.
 alter publication supabase_realtime add table public.progress;
 
--- 5. ПОСЛЕ создания пользователей (шаг 4 инструкции) выполни отдельно,
---    подставив свой email:
+-- 5. AFTER creating the users (step 4 of the guide), run separately,
+--    with your own email:
 -- insert into public.observers (user_id)
---   select id from auth.users where email = 'твой@email.de';
+--   select id from auth.users where email = 'you@example.com';
 
--- 7. Наблюдатель загружает новую версию курса прямо из приложения.
+-- 7. An observer uploads a new course version right from the app.
 grant insert, update on public.course_content to authenticated;
 drop policy if exists "course: observers insert" on public.course_content;
 drop policy if exists "course: observers update" on public.course_content;
@@ -100,4 +101,4 @@ create policy "course: observers update" on public.course_content for update to 
   using (exists (select 1 from public.observers o where o.user_id = (select auth.uid())))
   with check (exists (select 1 from public.observers o where o.user_id = (select auth.uid())));
 
--- 8. Напоминания (Web Push) — отдельный файл push.sql.
+-- 8. Reminders (Web Push) are in a separate file, push.sql.
