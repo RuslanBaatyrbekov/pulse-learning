@@ -80,13 +80,31 @@ try{var raw=localStorage.getItem(KEY);if(raw)S=fix(JSON.parse(raw));}catch(e){}
 (function(){var th=S.theme;try{th=th||localStorage.getItem(TKEY);}catch(e){}applyTheme(th||'auto');})();
 function cfgOk(){var c=window.PULS_CONFIG||{};return !!(c.url&&c.anonKey&&c.url.indexOf('ВСТАВЬ')<0&&window.supabase&&window.supabase.createClient);}
 function save(){S.t=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}schedulePush();}
+/* Слияние двух копий прогресса одного ученика: ни одно устройство не может стереть то, что сделано на другом.
+   Настройки берутся из более новой копии, прогресс объединяется (объединение и максимум).
+   Осознанный сброс или импорт (wipe) отсекает более старые копии. */
+function mergeS(a,b){a=fix(a);b=fix(b);var A=(a.t||0)>=(b.t||0)?a:b,B=A===a?b:a;
+  if((A.wipe||0)>(B.t||0))return A;
+  var r=fix(A);
+  function uni(k){Object.keys(B[k]||{}).forEach(function(x){if(!(x in r[k]))r[k][x]=B[k][x];});}
+  function mx(k){Object.keys(B[k]||{}).forEach(function(x){var v=+B[k][x]||0;if(!(x in r[k])||v>(+r[k][x]||0))r[k][x]=B[k][x];});}
+  ['done','frozen','seen','missions'].forEach(uni);['days','prac','nt','cx'].forEach(mx);
+  if(Object.keys(r.done).length<Object.keys(B.done||{}).length||!Object.keys(r.missed).length)uni('missed');
+  ['xp','best','perfect','reviews'].forEach(function(k){r[k]=Math.max(+A[k]||0,+B[k]||0);});
+  ['tour','tourDone','name','track','avatar'].forEach(function(k){if(!r[k]&&B[k])r[k]=B[k];});
+  if(B.wipe&&!(r.wipe>=B.wipe))r.wipe=B.wipe;
+  return r;}
+function same(a,b){try{return JSON.stringify(a)===JSON.stringify(b);}catch(e){return false;}}
+/* PULLED: облачная копия текущего курса уже прочитана. До этого ничего не отправляем,
+   иначе пустое состояние нового устройства перезапишет прогресс в облаке. */
+var PULLED=false;
 function adopt(c){S=fix(c);if(S.theme)applyTheme(S.theme);try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
 function schedulePush(){if(!SB||!ME||OWNER)return;clearTimeout(pushT);pushT=setTimeout(push,600);}
 /* Сессию отозвали или она истекла: выходим только на этом устройстве и просим войти заново. Локальный прогресс остаётся. */
 function authErr(r){var e=r&&r.error;return !!r&&(r.status===401||(!!e&&/jwt|PGRST30[0-3]/i.test(String(e.message||'')+' '+String(e.code||''))));}
 var lostShown=false;
 function sessionLost(){if(!SB)return;loginEm=EMAIL||S.email||loginEm;presStop();SB.auth.signOut({scope:'local'}).then(function(){},function(){});onSession(null);if(!lostShown){lostShown=true;setTimeout(function(){lostShown=false;},5000);toast('Сессия устарела. Войди ещё раз — прогресс на месте.');}}
-function push(){if(!SB||!ME||OWNER)return;if(pushing){again=true;return;}pushing=true;again=false;
+function push(){if(!SB||!ME||OWNER||!PULLED)return;if(pushing){again=true;return;}pushing=true;again=false;
   var row={user_id:ME,state:JSON.parse(JSON.stringify(S)),updated_at:new Date().toISOString()};if(!OLDDB)row.course_id=CUR;
   SB.from('progress').upsert(row,OLDDB?undefined:{onConflict:'user_id,course_id'})
   .then(function(r){if(authErr(r)){pushing=false;sessionLost();return;}syncState=r.error?'error':'cloud';},function(){syncState='error';})
@@ -97,10 +115,12 @@ function pull(){if(!SB||!ME||OWNER)return;var cid=CUR;
   myRow().then(function(r){if(cid!==CUR)return;
     if(authErr(r)){sessionLost();return;}
     if(r.error){syncState='error';if(view==='progress')render();return;}
-    var c=r.data&&r.data.state;
-    if(c&&(c.t||0)>(S.t||0)){adopt(c);syncState='cloud';if(view!=='run'&&view!=='result')render();}
-    else if(S.t&&(!c||(c.t||0)<S.t))push();
-    else{syncState='cloud';if(view==='progress')render();}
+    var c=r.data&&r.data.state;PULLED=true;
+    var calm=view!=='run'&&view!=='result';
+    if(!c){if(S.t)push();else syncState='cloud';if(calm)render();return;}
+    var m=mergeS(S,c);m.uid=ME;
+    if(!same(m,S)){var busy=view==='run'||view==='result';if(busy)m.t=Math.max(m.t||0,S.t||0);adopt(m);if(m.tour&&TOUR>=0){TOUR=-1;TOURQ=false;}if(!busy)render();}
+    if(!same(m,fix(c)))push();else{syncState='cloud';if(calm)render();}
   },function(){syncState='error';});}
 
 /* присутствие: кто сейчас держит приложение открытым (Supabase Realtime, без таблицы) */
@@ -113,16 +133,18 @@ function presStop(){if(PCH){try{SB.removeChannel(PCH);}catch(e){}PCH=null;ONLINE
 /* раз в 5 минут, пока приложение открыто: отметка «была в сети» для наблюдателя */
 function beat(){if(!SB||!ME||OWNER||document.hidden)return;
   var cid=CUR;myRow().then(function(r){if(cid!==CUR)return;if(authErr(r)){sessionLost();return;}if(r.error)return;var c=r.data&&r.data.state;
-    if(c&&(c.t||0)>(S.t||0)){adopt(c);if(view!=='run'&&view!=='result')render();}S.lastOn=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}push();},function(){});}
+    PULLED=true;if(c){var m=mergeS(S,c);m.uid=ME;if(!same(m,S)&&view!=='run'&&view!=='result'){adopt(m);render();}}
+    S.lastOn=Date.now();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}if(view!=='run')push();},function(){});}
 function beatStart(){clearInterval(BEAT);setTimeout(beat,1500);BEAT=setInterval(beat,5*60000);}
 function presPaint(){document.querySelectorAll('[data-uid]').forEach(function(el){var on=!!ONLINE[el.dataset.uid];el.classList.toggle('on',on);el.title=on?'в сети':'';});
   document.querySelectorAll('[data-seen]').forEach(function(el){var on=!!ONLINE[el.dataset.seen];el.textContent=on?'в сети сейчас':'была '+ago(+el.dataset.ts);el.classList.toggle('onl',on);});}
+window.addEventListener('online',function(){if(SB&&ME&&!OWNER)pull();});
 document.addEventListener('visibilitychange',function(){if(!PCH)return;try{if(document.hidden)PCH.untrack();else PCH.track({at:Date.now()});}catch(e){}});
 
 function onSession(sess){var id=sess&&sess.user?sess.user.id:null;
   if(!id){presStop();ME=null;EMAIL='';OWNER=false;syncState='local';R=null;T=null;view='login';render();return;}
   if(id===ME&&view!=='boot'&&view!=='login')return;
-  ME=id;EMAIL=sess.user.email||'';setTimeout(presStart,0);
+  ME=id;EMAIL=sess.user.email||'';setTimeout(presStart,0);PULLED=false;
   if(S.uid&&S.uid!==ME){S=def();try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
   S.uid=ME;S.email=EMAIL;if(!S.name&&sess.user.user_metadata&&sess.user.user_metadata.name)S.name=String(sess.user.user_metadata.name).slice(0,30);
   SB.from('observers').select('user_id').eq('user_id',ME).maybeSingle().then(function(r){OWNER=!!(r&&r.data);},function(){OWNER=false;})
@@ -149,7 +171,7 @@ function loadCatalog(){if(!SB)return Promise.resolve();
 function pickCourse(){var ids=CAT.map(function(x){return x.id;});if(!ids.length||ids.indexOf(CUR)>=0)return;useCourse(ids.indexOf('main')>=0?'main':ids[0]);}
 /* профиль (имя, аватар, тема, напоминания, пройденное обучение) общий для всех курсов */
 function carry(o){var n=def();['name','avatar','theme','remind','remindAsk','tour','tourDone','uid','email'].forEach(function(k){if(o&&o[k]!==undefined)n[k]=o[k];});return n;}
-function useCourse(id){if(id===CUR)return;var prev=S;CUR=id;setKeys();try{localStorage.setItem(CURKEY,CUR);}catch(e){}
+function useCourse(id){if(id===CUR)return;var prev=S;CUR=id;setKeys();PULLED=false;try{localStorage.setItem(CURKEY,CUR);}catch(e){}
   var st=null;try{var raw=localStorage.getItem(KEY);if(raw)st=fix(JSON.parse(raw));}catch(e){}
   if(!st||(ME&&st.uid&&st.uid!==ME))st=carry(prev);
   S=st;R=null;T=null;NOTE=null;NCAT='all';NQ='';GQ='';
@@ -653,7 +675,7 @@ function placeTour(){var box=$('.tour.spot');if(!box)return;var el=document.quer
   else{tip.style.bottom='auto';tip.style.top=(r.bottom+pad+14)+'px';tip.style.maxHeight=below+'px';arr.className='tarr up';}
   tip.style.overflow='';if(tip.scrollHeight>tip.clientHeight+2){tip.style.overflow='auto';arr.style.display='none';}else arr.style.display='';}
 window.addEventListener('resize',placeTour);window.addEventListener('scroll',placeTour,{passive:true});
-function maybeTour(){if(!S.tour&&TOUR<0&&!OWNER&&ALL.length&&VIEWS.indexOf(view)>=0&&view!=='watch'){if(view!=='path'){view='path';try{history.replaceState(null,'','#path');}catch(e){}}TOUR=0;}}
+function maybeTour(){if(!S.tour&&TOUR<0&&!OWNER&&(!SB||!ME||PULLED)&&ALL.length&&VIEWS.indexOf(view)>=0&&view!=='watch'){if(view!=='path'){view='path';try{history.replaceState(null,'','#path');}catch(e){}}TOUR=0;}}
 
 /* ---------- отрисовка и события ---------- */
 function render(){rebuild();if(view==='sandbox'&&!sandOn())view='path';maybeTour();var a=$('#app'),tabs=$('#tabs'),inRun=view==='run'||view==='result'||view==='login'||view==='boot'||view==='nocourse';tabs.hidden=inRun;tabs.style.display=inRun?'none':'';
@@ -714,9 +736,9 @@ var A={
     try{o=JSON.parse(decodeURIComponent(escape(atob(v))));}catch(e){}
     if(!o||typeof o.xp!=='number'||typeof o.done!=='object'||typeof o.days!=='object')return toast('Код не читается. Проверь, что он вставлен целиком.');
     if(o.xp<S.xp&&!impArmed){impArmed=true;setTimeout(function(){impArmed=false;},6000);return toast('В коде меньше XP, чем сейчас ('+o.xp+' против '+S.xp+'). Нажми ещё раз, чтобы заменить.');}
-    impArmed=false;var uid=S.uid,em=S.email;S=fix(o);if(uid){S.uid=uid;S.email=em;}save();render();toast('Прогресс восстановлен: '+S.xp+' XP.');},
+    impArmed=false;var uid=S.uid,em=S.email;S=fix(o);if(uid){S.uid=uid;S.email=em;}S.wipe=Date.now();save();render();toast('Прогресс восстановлен: '+S.xp+' XP.');},
   name:function(){S.name=$('#nm').value.trim().slice(0,30);save();render();toast('Сохранено.');},
-  reset:function(el){if(!resetArmed){resetArmed=true;el.textContent='Нажми ещё раз, чтобы стереть всё';setTimeout(function(){resetArmed=false;},5000);return;}resetArmed=false;var n=S.name,av=S.avatar,th=S.theme,uid=S.uid,em=S.email;S=def();S.name=n;S.avatar=av;S.theme=th;S.tour=1;S.tourDone=1;if(uid){S.uid=uid;S.email=em;}save();render();toast('Прогресс сброшен.');}
+  reset:function(el){if(!resetArmed){resetArmed=true;el.textContent='Нажми ещё раз, чтобы стереть всё';setTimeout(function(){resetArmed=false;},5000);return;}resetArmed=false;var n=S.name,av=S.avatar,th=S.theme,uid=S.uid,em=S.email;S=def();S.name=n;S.avatar=av;S.theme=th;S.tour=1;S.tourDone=1;if(uid){S.uid=uid;S.email=em;}S.wipe=Date.now();save();render();toast('Прогресс сброшен.');}
 };
 document.addEventListener('click',function(e){var el=e.target.closest('[data-a]');if(!el||el.disabled)return;var f=A[el.dataset.a];if(f)f(el);});
 document.addEventListener('change',function(e){if(e.target.id==='upf'&&e.target.files&&e.target.files[0]){doUpload(e.target.files[0]);e.target.value='';return;}if(e.target.dataset&&e.target.dataset.ch==='remh')pushHour(+e.target.value);});

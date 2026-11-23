@@ -81,6 +81,7 @@ Design notes:
 
 - **Security lives in the database, not in the client.** Row Level Security policies in `schema.sql`:
   - a learner reads and writes only their own progress rows (one per course);
+  - progress can't shrink by accident: the database refuses a save with less XP or fewer finished lessons unless the learner pressed Reset or imported a code, and keeps every refused or reset copy in `progress_history` (plus nightly snapshots for 14 days when pg_cron is on). The app merges copies from different devices instead of overwriting, and never writes before it has read the cloud copy;
   - an observer reads all rows and writes none;
   - a course is readable when it is open, granted to the learner in `course_access`, or the reader is an observer; only observers write courses and grant access;
   - push subscriptions belong to their owner; the reminder function reads them with the secret key on the server;
@@ -98,6 +99,7 @@ JavaScript (ES5, no framework) · Supabase Auth · PostgreSQL with RLS · Supaba
 ## Quick start
 
 1. Create a Supabase project (EU region recommended) and run `schema.sql` in the SQL Editor.
+   Then run `migrations/002_progress_safety.sql` (progress guard and history).
    Upgrading a project created before multi-course support: run `migrations/001_multi_course.sql` once instead. Existing progress stays where it is (it becomes course `main`), and apps still running the old `app.js` keep syncing.
 2. Load the example course: run `examples/course.example.sql`.
 3. Turn off sign-ups in **Authentication → Providers → Email**, create users in **Authentication → Users**.
